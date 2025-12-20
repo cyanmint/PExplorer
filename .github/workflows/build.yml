@@ -5,6 +5,7 @@ on:
     branches: [ "**" ]
   pull_request:
     branches: [ "**" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -12,11 +13,12 @@ jobs:
     
     strategy:
       matrix:
-        configuration: [Release, Debug]
         platform: [Win32, x64]
+        configuration: [Debug, Release]
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
     
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
@@ -73,8 +75,8 @@ jobs:
     - name: Restore NuGet packages
       run: nuget restore WinXShell_VS2022.sln
     
-    - name: Build
-      run: msbuild WinXShell_VS2022.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m
+    - name: Build solution
+      run: msbuild WinXShell_VS2022.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m /v:minimal
     
     - name: Upload artifacts
       if: matrix.configuration == 'Release'
@@ -82,5 +84,5 @@ jobs:
       with:
         name: WinXShell-${{ matrix.platform }}
         path: |
-          ${{ matrix.platform }}/Release/*.exe
-          ${{ matrix.platform }}/Release/*.dll
+          ${{ matrix.platform }}/${{ matrix.configuration }}/*.exe
+          ${{ matrix.platform }}/${{ matrix.configuration }}/*.dll
