@@ -147,5 +147,4 @@ protected:
     virtual HRESULT OnDefaultCommand(LPIDA pida);
     void    RegisterHotkeys(BOOL unreg = FALSE);
     void    ProcessHotKey(int id_hotkey);
-    void    ProcessUserCommand(WPARAM wparam, LPARAM lparam);
 };

@@ -25,7 +25,6 @@
 // Martin Fuchs, 23.07.2003
 //
 
-#pragma once
 
 typedef set<HWND> WindowSet;
 
@@ -1050,31 +1049,31 @@ template<typename BASE> struct TrayIconControllerTemplate : public BASE {
         if (nmsg == PM_TRAYICON) {
             switch (lparam) {
             case WM_MOUSEMOVE:
-                TrayMouseOver((UINT)wparam);
+                TrayMouseOver(wparam);
                 break;
 
             case WM_LBUTTONDOWN:
-                TrayClick((UINT)wparam, TRAYBUTTON_LEFT);
+                TrayClick(wparam, TRAYBUTTON_LEFT);
                 break;
 
             case WM_LBUTTONDBLCLK:
-                TrayDblClick((UINT)wparam, TRAYBUTTON_LEFT);
+                TrayDblClick(wparam, TRAYBUTTON_LEFT);
                 break;
 
             case WM_RBUTTONDOWN:
-                TrayClick((UINT)wparam, TRAYBUTTON_RIGHT);
+                TrayClick(wparam, TRAYBUTTON_RIGHT);
                 break;
 
             case WM_RBUTTONDBLCLK:
-                TrayDblClick((UINT)wparam, TRAYBUTTON_RIGHT);
+                TrayDblClick(wparam, TRAYBUTTON_RIGHT);
                 break;
 
             case WM_MBUTTONDOWN:
-                TrayClick((UINT)wparam, TRAYBUTTON_MIDDLE);
+                TrayClick(wparam, TRAYBUTTON_MIDDLE);
                 break;
 
             case WM_MBUTTONDBLCLK:
-                TrayDblClick((UINT)wparam, TRAYBUTTON_MIDDLE);
+                TrayDblClick(wparam, TRAYBUTTON_MIDDLE);
                 break;
             }
 

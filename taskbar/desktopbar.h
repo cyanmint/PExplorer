@@ -25,7 +25,6 @@
 // Martin Fuchs, 22.08.2003
 //
 
-#include "../customization/startbutton.h"
 
 #define CLASSNAME_EXPLORERBAR   TEXT("Shell_TrayWnd")
 #define TITLE_EXPLORERBAR       TEXT("")    // use an empty window title, so windows taskmanager does not show the window in its application list
@@ -57,8 +56,6 @@
 #define IDC_TERMINATE           0x1018
 #define IDC_RESTART             0x1019
 
-#define IDC_CONNECTIONS_FOLDER  0x110F
-
 #define IDC_FIRST_MENU          0x3000
 
 // hotkeys
@@ -67,16 +64,22 @@
 #define IDHK_DESKTOP 2
 #define IDHK_LOGOFF 3
 #define IDHK_STARTMENU 4
-#define IDHK_WIN_S 5
-#define IDHK_WIN_F 6
 
 /// desktop bar window, also known as "system tray"
 struct DesktopBar : public
+#ifdef __REACTOS__
     TrayIconControllerTemplate <
     OwnerDrawParent<Window> >
+#else
+    OwnerDrawParent<Window>
+#endif
 {
+#ifdef __REACTOS__
     typedef TrayIconControllerTemplate <
     OwnerDrawParent<Window> > super;
+#else
+    typedef OwnerDrawParent<Window> super;
+#endif
 
     DesktopBar(HWND hwnd);
     ~DesktopBar();
@@ -97,7 +100,7 @@ protected:
     void    ControlResize(WPARAM wparam, LPARAM lparam);
     void    RegisterHotkeys(BOOL unreg = FALSE);
     void    ProcessHotKey(int id_hotkey);
-    void    ShowOrHideStartMenu(const char *startAction);
+    void    ShowOrHideStartMenu();
     LRESULT ProcessCopyData(COPYDATASTRUCT *pcd);
 
     WindowHandle _hwndTaskBar;
@@ -106,25 +109,27 @@ protected:
     WindowHandle _hwndrebar;
     /* Needed to make the StartButton pushed, if it's called by windowskey: SC_TASKLIST command */
     WindowHandle _hwndStartButton;
-    char        _startAction[64];
+
     struct StartMenuRoot *_startMenuRoot;
 
     HBITMAP _hbmQuickLaunchBack;
-    int     _iQuickLaunchPadding;
-    TrayIcon    _traySndVolIcon;
-    TrayIcon    _trayNetworkIcon;
+#ifdef __REACTOS__
+    TrayIcon    _trayIcon;
+
     void    AddTrayIcons();
     virtual void TrayClick(UINT id, int btn);
     virtual void TrayDblClick(UINT id, int btn);
+#else
+    const UINT WM_TASKBARCREATED;
+#endif
 };
 
 
 /// special "Start" button with one click activation
-struct StartButton : public PictureButton2 {
-    typedef PictureButton2 super;
+struct StartButton : public PictureButton {
+    typedef PictureButton super;
 
-    StartButton(HWND hwnd, UINT nid, HBRUSH hbrush, HBRUSH hbrush2, COLORREF textcolor = -1, bool flat = false);
-    StartButton(HWND hwnd, HICON hicon, HICON hicon2, HBRUSH hbrush, HBRUSH hbrush2, COLORREF textcolor = -1, bool flat = false);
+    StartButton(HWND hwnd, UINT nid, COLORREF textcolor = -1, bool flat = false);
 
 protected:
     LRESULT WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam);

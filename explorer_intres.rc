@@ -25,14 +25,9 @@ LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 //
 
 IDB_DRIVEBAR            BITMAP                  "res/drivebar.bmp"
-IDB_LOGOV16             BITMAP                  "res/logov16.bmp"
-IDB_LOGOV256            BITMAP                  "res/logov256.bmp"
 IDB_LOGOV               BITMAP                  "res/logov.bmp"
-IDB_LOGOV_WIN           BITMAP                  "res/logov_WIN.bmp"
-IDB_LOGOV_PE            BITMAP                  "res/logov_PE.bmp"
-IDB_LOGOV_CTM1          BITMAP                  "res/logov_CTM1.bmp"
-IDB_LOGOV_CTM2          BITMAP                  "res/logov_CTM2.bmp"
-IDB_LOGOV_CTM3          BITMAP                  "res/logov_CTM3.bmp"
+IDB_LOGOV256            BITMAP                  "res/logov256.bmp"
+IDB_LOGOV16             BITMAP                  "res/logov16.bmp"
 IDB_ICON_ALIGN_0        BITMAP                  "res/icoalig0.bmp"
 IDB_ICON_ALIGN_1        BITMAP                  "res/icoalig1.bmp"
 IDB_ICON_ALIGN_2        BITMAP                  "res/icoalig2.bmp"
@@ -75,6 +70,57 @@ BEGIN
     VK_F5,          ID_REFRESH,             VIRTKEY, NOINVERT
 END
 
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE 
+BEGIN
+    "#include <windows.h>\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE 
+BEGIN
+    "#ifndef ROSSHELL\r\n"
+    "IDB_IMAGES BITMAP DISCARDABLE ""res/images.bmp""\r\n"
+    "IDB_TOOLBAR BITMAP DISCARDABLE ""res/toolbar.bmp""\r\n"
+    "#endif\r\n"
+    "#ifndef __REACTOS__\r\n"
+    "LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL\r\n"
+    "STRINGTABLE DISCARDABLE \r\n"
+    "BEGIN\r\n"
+    "IDS_VERSION_STR ""V2.0 RC4""\r\n"
+    "#ifdef UNICODE\r\n"
+    "IDS_EXPLORER_VERSION_STR ""WinXShell %0s""\r\n"
+    "#else\r\n"
+    "IDS_EXPLORER_VERSION_STR ""WinXShell Ansi %0s""\r\n"
+    "#endif\r\n"
+    "END\r\n"
+    "#endif\r\n"
+    "#ifndef _DEBUG\r\n"
+    "CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST DISCARDABLE PURE ""explorer.exe.manifest""\r\n"
+    "#endif\r\n"
+    "\r\n"
+    "#include ""explorer-en.rc""\r\n"
+    "#include ""explorer-ja.rc""\r\n"
+    "\r\n"
+    "#pragma code_page(65001)"
+    "#include ""explorer-zh.rc""\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Icon
@@ -84,12 +130,8 @@ END
 // remains consistent on all systems.
 IDI_EXPLORER            ICON                    "res/explorer.ico"
 IDI_COMPUTER            ICON                    "res/computer.ico"
-IDI_STARTMENU_W         ICON                    "res/startmenu_white.ico"
-IDI_STARTMENU_W2        ICON                    "res/startmenu_b.ico"
-IDI_STARTMENU_B         ICON                    "res/startmenu_black.ico"
-IDI_STARTMENU_B2        ICON                    "res/startmenu_b.ico"
-IDI_SM_CUSTOM_1         ICON                    "res/sm_custom_1.ico"
-IDI_SM_CUSTOM_2         ICON                    "res/sm_custom_2.ico"
+IDI_STARTMENU_W         ICON                    "res/startmenu_w.ico"
+IDI_STARTMENU_B         ICON                    "res/startmenu_b.ico"
 IDI_LOGOFF              ICON                    "res/logoff.ico"
 IDI_SHUTDOWN            ICON                    "res/shutdown.ico"
 IDI_TERMINATE           ICON                    "res/terminate.ico"
@@ -128,48 +170,6 @@ IDI_NETCONNS            ICON                    "res/network-conns.ico"
 IDI_ADMIN               ICON                    "res/administration.ico"
 IDI_RECENT              ICON                    "res/recent-documents.ico"
 IDI_EMPTY               ICON                    "res/empty.ico"
-IDI_EMPTY2              ICON                    "res/empty.ico"
-IDI_CMD24              ICON                     "res/cmd24.ico"
-IDI_TRAY_SND_NONE       ICON                    "res/snd_none.ico"
-IDI_TRAY_SND_MUTE       ICON                    "res/snd_mute.ico"
-IDI_TRAY_SND_SMALL      ICON                    "res/snd_s.ico"
-IDI_TRAY_SND_MIDDLE     ICON                    "res/snd_m.ico"
-IDI_TRAY_SND_LARGE      ICON                    "res/snd_l.ico"
-
-IDI_TRAY_DARK_SND_NONE       ICON                    "res/dark/snd_none.ico"
-IDI_TRAY_DARK_SND_MUTE       ICON                    "res/dark/snd_mute.ico"
-IDI_TRAY_DARK_SND_SMALL      ICON                    "res/dark/snd_s.ico"
-IDI_TRAY_DARK_SND_MIDDLE     ICON                    "res/dark/snd_m.ico"
-IDI_TRAY_DARK_SND_LARGE      ICON                    "res/dark/snd_l.ico"
-
-IDI_TRAY_NET_WIRED_DIS          ICON            "res/tray_network_wired_dis.ico"
-IDI_TRAY_NET_WIRED_LAN          ICON            "res/tray_network_wired_lan.ico"
-IDI_TRAY_NET_WIRED_INTERNET     ICON            "res/tray_network_wired_internet.ico"
-IDI_TRAY_NET_WIRELESS_DIS       ICON            "res/tray_network_wireless_dis.ico"
-IDI_TRAY_NET_WIRELESS_NOCONN_LEGACY   ICON      "res/tray_network_wireless_noconn_legacy.ico"
-IDI_TRAY_NET_WIRELESS_NOCONN    ICON            "res/tray_network_wireless_noconn.ico"
-IDI_TRAY_NET_WIRELESS_LAN       ICON            "res/tray_network_wireless_lan.ico"
-//IDI_TRAY_NET_WIRELESS_INTERNET  ICON            "res/tray_network_wireless_internet.ico"
-IDI_TRAY_NET_SIGNAL_NONE        ICON            "res/tray_network_signal_0.ico"
-IDI_TRAY_NET_SIGNAL_QUARTER1    ICON            "res/tray_network_signal_25.ico"
-IDI_TRAY_NET_SIGNAL_QUARTER2    ICON            "res/tray_network_signal_50.ico"
-IDI_TRAY_NET_SIGNAL_QUARTER3    ICON            "res/tray_network_signal_75.ico"
-IDI_TRAY_NET_SIGNAL_QUARTER4    ICON            "res/tray_network_signal_100.ico"
-
-IDI_TRAY_DARK_NET_WIRED_DIS          ICON            "res/dark/tray_network_wired_dis.ico"
-IDI_TRAY_DARK_NET_WIRED_LAN          ICON            "res/dark/tray_network_wired_lan.ico"
-IDI_TRAY_DARK_NET_WIRED_INTERNET     ICON            "res/dark/tray_network_wired_internet.ico"
-IDI_TRAY_DARK_NET_WIRELESS_DIS       ICON            "res/dark/tray_network_wireless_dis.ico"
-IDI_TRAY_DARK_NET_WIRELESS_NOCONN_LEGACY   ICON      "res/dark/tray_network_wireless_noconn_legacy.ico"
-IDI_TRAY_DARK_NET_WIRELESS_NOCONN    ICON            "res/dark/tray_network_wireless_noconn.ico"
-IDI_TRAY_DARK_NET_WIRELESS_LAN       ICON            "res/dark/tray_network_wireless_lan.ico"
-//IDI_TRAY_DARK_NET_WIRELESS_INTERNET  ICON            "res/dark/tray_network_wireless_internet.ico"
-IDI_TRAY_DARK_NET_SIGNAL_NONE        ICON            "res/dark/tray_network_signal_0.ico"
-IDI_TRAY_DARK_NET_SIGNAL_QUARTER1    ICON            "res/dark/tray_network_signal_25.ico"
-IDI_TRAY_DARK_NET_SIGNAL_QUARTER2    ICON            "res/dark/tray_network_signal_50.ico"
-IDI_TRAY_DARK_NET_SIGNAL_QUARTER3    ICON            "res/dark/tray_network_signal_75.ico"
-IDI_TRAY_DARK_NET_SIGNAL_QUARTER4    ICON            "res/dark/tray_network_signal_100.ico"
-
 #endif    // Neutral resources
 /////////////////////////////////////////////////////////////////////////////
 
@@ -183,19 +183,12 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// FILE
-//
-
-IDR_LUA_HELPER            FILE                    "lua_helper/LUA_HELPER.lua"
-IDR_APP_HELPERS           FILE                    "lua_helper/APP_HELPERS.lua"
-
-/////////////////////////////////////////////////////////////////////////////
-//
 // Version
 //
 
 1 VERSIONINFO
-FILEVERSION RELEASE_DATE
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -212,11 +205,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "FreeMan"
             VALUE "FileDescription", "Windows WinXShell"
+            VALUE "FileVersion", "1,0,8,15"
             VALUE "InternalName", "WinXShell"
             VALUE "LegalCopyright", "(c) FreeMan. All rights reserved."
             VALUE "OriginalFilename", "WinXShell.exe"
             VALUE "ProductName", "WINXSHELL.EXE"
-            VALUE "ProductVersion", PRODUCT_VERSION_STR
+            VALUE "ProductVersion", "1.0.0.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -239,17 +233,18 @@ END
 IDB_IMAGES BITMAP DISCARDABLE "res/images.bmp"
 IDB_TOOLBAR BITMAP DISCARDABLE "res/toolbar.bmp"
 #endif
+#ifndef __REACTOS__
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
 STRINGTABLE DISCARDABLE 
 BEGIN
-IDS_VERSION_STR PRODUCT_VERSION_STR
+IDS_VERSION_STR "V2.0 RC4"
 #ifdef UNICODE
 IDS_EXPLORER_VERSION_STR "WinXShell %0s"
 #else
 IDS_EXPLORER_VERSION_STR "WinXShell Ansi %0s"
 #endif
-IDS_COPYRIGHT_STR PRODUCT_COPYRIGHT_STR
 END
+#endif
 #ifndef _DEBUG
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST DISCARDABLE PURE "WinXShell.exe.manifest"
 #endif
@@ -261,11 +256,7 @@ CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST DISCARDABLE PURE "WinXShell.exe.m
 #include "explorer-ja.rc"
 #endif
 
-// UTF-8
 #pragma code_page(65001)
-#ifdef LANGUAGE_RU_RU
-#include "explorer-ru.rc"
-#endif
 #ifdef LANGUAGE_ZH_CN
     #include "explorer-zh.rc"
 #endif

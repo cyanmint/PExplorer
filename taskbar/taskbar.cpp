@@ -31,9 +31,6 @@
 #include "taskbar.h"
 #include "traynotify.h" // for NOTIFYAREA_WIDTH_DEF
 
-#include <Uxtheme.h>
-#pragma comment(lib, "uxtheme.lib")
-
 
 DynamicFct<BOOL (WINAPI *)(HWND hwnd)> g_SetTaskmanWindow(TEXT("user32"), "SetTaskmanWindow");
 DynamicFct<BOOL (WINAPI *)(HWND hwnd)> g_RegisterShellHookWindow(TEXT("user32"), "RegisterShellHookWindow");
@@ -41,13 +38,6 @@ DynamicFct<BOOL (WINAPI *)(HWND hwnd)> g_DeregisterShellHookWindow(TEXT("user32"
 
 
 DynamicFct<BOOL (WINAPI*)(HWND hWnd, DWORD dwType)> g_RegisterShellHook(TEXT("shell32"), (LPCSTR)0xb5);
-
-#define ID_TIMER_DESTORYTHUMBNAIL 101
-extern void InitThumbnailWindow(HWND taskbar, HWND toolbar);
-extern int DrawThumbnailWindow(HINSTANCE hInstance, HWND hWndSrc, LPCTSTR lpClassName, LPCTSTR lpWindowName, int id);
-extern void DestoryThumbnailWindow();
-
-extern void TaskbarTransparency(HWND hwnd, const TCHAR *mode, UINT transparency, COLORREF color);
 
 // constants for RegisterShellHook()
 #define RSH_UNREGISTER          0
@@ -60,8 +50,6 @@ extern void TaskbarTransparency(HWND hwnd, const TCHAR *mode, UINT transparency,
 #define GCL_HICON GCLP_HICON
 #define GCL_HICONSM GCLP_HICONSM
 #endif
-
-static HBRUSH hbrTaskLine = NULL;
 
 TaskBarEntry::TaskBarEntry()
 {
@@ -82,47 +70,6 @@ TaskBarMap::~TaskBarMap()
     }
 }
 
-RECT TaskBar::_icon_area = { 1, 0, TASKBAR_ICON_SIZE + 4, DESKTOPBARBAR_HEIGHT - 4 };
-
-void TaskBar::InitTaskbarStyle()
-{
-    _no_task_title = false;
-    _task_close_button = false;
-    bool show_task_line = false;
-    COLORREF clrTaskLine = TASKBAR_TASKLINECOLOR();
-
-    if (JCFG2_DEF("JS_TASKBAR", "no_task_title", false).ToBool() != FALSE) {
-        _no_task_title = true;
-        _icon_area.right = TASKBAR_ICON_SIZE + 8 + 4;
-        _icon_area.bottom = DESKTOPBARBAR_HEIGHT - 4;
-    } else {
-        if (JCFG2_DEF("JS_TASKBAR", "task_close_button", false).ToBool() != FALSE) {
-            _task_close_button = true;
-        }
-    }
-
-    if (clrTaskLine != MAXDWORD) {
-        show_task_line = true;
-        _icon_area.top = -1;
-        _icon_area.bottom -= 3;
-    }
-
-    String msstyle_taskbutton = JCFG2_DEF("JS_TASKBAR", "msstyle_taskbutton", TEXT("auto")).ToString();
-    if (msstyle_taskbutton == TEXT("auto")) {
-        if (_task_close_button) {
-            msstyle_taskbutton = TEXT("BB");
-        } else if (TASKBAR_THEMESTYLE().compare(TEXT("light")) == 0) {
-            msstyle_taskbutton = TEXT("BB");
-        } else {
-            msstyle_taskbutton = TEXT("DarkMode");
-            JCFG_QL_SET(2, "hide_fixedsep") = true;
-        }
-    }
-    if (msstyle_taskbutton != TEXT("")) {
-        JCFG_TB_SET(2, "msstyle_taskbutton") = msstyle_taskbutton;
-        JCFG_QL_SET(2, "msstyle_button") = msstyle_taskbutton;
-    }
-}
 
 TaskBar::TaskBar(HWND hwnd)
     :  super(hwnd),
@@ -143,8 +90,6 @@ TaskBar::TaskBar(HWND hwnd)
 
         SystemParametersInfo(SPI_SETMINIMIZEDMETRICS, sizeof(_mmMetrics_new), &_mmMetrics_new, 0);
     }
-
-    InitTaskbarStyle();
 }
 
 TaskBar::~TaskBar()
@@ -176,55 +121,26 @@ HWND TaskBar::Create(HWND hwndParent)
                           taskbar_pos, clnt.top + 1, clnt.right - taskbar_pos - (NOTIFYAREA_WIDTH_DEF + 1), clnt.bottom - 2, hwndParent);
 }
 
-//#include <Uxtheme.h>
-
 LRESULT TaskBar::Init(LPCREATESTRUCT pcs)
 {
     if (super::Init(pcs))
         return 1;
 
-    //hbrTaskLine = GetSysColorBrush(COLOR_BTNFACE);
-    COLORREF clrTaskLine = TASKBAR_TASKLINECOLOR();
-    if (clrTaskLine != MAXDWORD) {
-        hbrTaskLine = CreateSolidBrush(clrTaskLine);
-    }
-
     /* FIXME: There's an internal padding for non-flat toolbar. Get rid of it somehow. */
-    DWORD ws = WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | CCS_TOP | TBSTYLE_TRANSPARENT |
-        CCS_NODIVIDER | TBSTYLE_LIST | TBSTYLE_TOOLTIPS | TBSTYLE_WRAPABLE | TBSTYLE_FLAT;
+    DWORD ws = WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | CCS_TOP |
+               CCS_NODIVIDER | TBSTYLE_LIST | TBSTYLE_TOOLTIPS | TBSTYLE_WRAPABLE | TBSTYLE_FLAT;
 
-    //_htoolbar = CreateToolbarEx(_hwnd, ws /* |TBSTYLE_AUTOSIZE */, IDW_TASKTOOLBAR, 0, 0, 0, NULL,
-    //                            0, 0, 0, DESKTOPBARBAR_HEIGHT - 4, DESKTOPBARBAR_HEIGHT, sizeof(TBBUTTON));
+    _htoolbar = CreateToolbarEx(_hwnd, ws /* |TBSTYLE_AUTOSIZE */, IDW_TASKTOOLBAR, 0, 0, 0, NULL,
+                                0, 0, 0, TASKBAR_ICON_SIZE, TASKBAR_ICON_SIZE, sizeof(TBBUTTON));
 
-    // Create the toolbar.
-    _htoolbar = CreateWindowEx(0, TOOLBARCLASSNAME, NULL, ws, 0, 0,
-        DESKTOPBARBAR_HEIGHT - 4, DESKTOPBARBAR_HEIGHT, _hwnd, NULL, g_Globals._hInstance, NULL);
-
-
-    SendMessage(_htoolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
-    SendMessage(_htoolbar, TB_SETBUTTONWIDTH, 0, MAKELPARAM(TASKBUTTONWIDTH_MAX, TASKBUTTONWIDTH_MAX));
-
-    if (_no_task_title) {
-        // show only icons
-        SendMessage(_htoolbar, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
-    } else {
-        if (_task_close_button) {
-            SendMessage(_htoolbar, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_DRAWDDARROWS);
-        }
-    }
-    SendMessage(_htoolbar, TB_SETBITMAPSIZE, 0, MAKELPARAM(_icon_area.right, _icon_area.bottom));
-
-    String msstyle_taskbutton = JCFG2_DEF("JS_TASKBAR", "msstyle_taskbutton", TEXT("")).ToString();
-    if (msstyle_taskbutton != TEXT("")) {
-        SetWindowTheme(_htoolbar, msstyle_taskbutton, L"Toolbar"); //TaskBar
-    }
-
+    SendMessage(_htoolbar, TB_SETBUTTONWIDTH, 0, MAKELONG(TASKBUTTONWIDTH_MAX, TASKBUTTONWIDTH_MAX));
+    //RECT rc;
+    //GetWindowRect(_htoolbar, &rc);
+    //MoveWindow(_htoolbar, rc.left, rc.top, rc.right - rc.left, 48, TRUE);
+    //SendMessage(_htoolbar, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_MIXEDBUTTONS);
     //SendMessage(_htoolbar, TB_SETDRAWTEXTFLAGS, DT_CENTER|DT_VCENTER, DT_CENTER|DT_VCENTER);
     //SetWindowFont(_htoolbar, GetStockFont(DEFAULT_GUI_FONT), FALSE);
     //SendMessage(_htoolbar, TB_SETPADDING, 0, MAKELPARAM(8,8));
-
-    HWND hwndToolTip = (HWND)SendMessage(_htoolbar, TB_GETTOOLTIPS, 0, 0);
-    SetWindowStyle(hwndToolTip, GetWindowStyle(hwndToolTip) | TTS_ALWAYSTIP);
 
     // set metrics for the Taskbar toolbar to enable button spacing
     TBMETRICS metrics;
@@ -233,7 +149,7 @@ LRESULT TaskBar::Init(LPCREATESTRUCT pcs)
     metrics.dwMask = TBMF_BARPAD | TBMF_BUTTONSPACING;
     metrics.cxBarPad = 0;
     metrics.cyBarPad = JCFG_TB(2, "padding-top").ToInt();
-    metrics.cxButtonSpacing = 1;
+    metrics.cxButtonSpacing = 3;
     metrics.cyButtonSpacing = 0;
 
     SendMessage(_htoolbar, TB_SETMETRICS, 0, (LPARAM)&metrics);
@@ -269,12 +185,6 @@ LRESULT TaskBar::Init(LPCREATESTRUCT pcs)
     }
     Refresh();
 
-    _thumbnail = JCfg_TaskThumbnailEnabled();
-    if (_thumbnail) {
-        InitThumbnailWindow(_hwnd, _htoolbar);
-    }
-
-    ApplyBackgroundStyle();
     return 0;
 }
 
@@ -284,16 +194,10 @@ LRESULT TaskBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
     case WM_SIZE:
         SendMessage(_htoolbar, WM_SIZE, 0, 0);
         ResizeButtons();
-        // ApplyBackgroundStyle();
         break;
 
     case WM_TIMER:
-        if (wparam == 0) {
-            Refresh();
-        } else if (wparam == ID_TIMER_DESTORYTHUMBNAIL) {
-            KillTimer(_hwnd, ID_TIMER_DESTORYTHUMBNAIL);
-            DestoryThumbnailWindow();
-        }
+        Refresh();
         return 0;
 
     case WM_CONTEXTMENU: {
@@ -345,11 +249,7 @@ int TaskBar::Command(int id, int code)
     TaskBarMap::iterator found = _map.find_id(id);
 
     if (found != _map.end()) {
-        if (code == WM_CLOSE) {
-            PostMessage(found->first, WM_SYSCOMMAND, SC_CLOSE, 0);
-        } else {
-            ActivateApp(found);
-        }
+        ActivateApp(found);
         return 0;
     }
 
@@ -359,9 +259,6 @@ int TaskBar::Command(int id, int code)
 int TaskBar::Notify(int id, NMHDR *pnmh)
 {
     if (pnmh->hwndFrom == _htoolbar) {
-        if (g_Globals._isDebug) {
-            _log_(FmtString(TEXT("TaskBar::Notify(%d)"), pnmh->code));
-        }
         switch (pnmh->code) {
         case NM_RCLICK: {
             TBBUTTONINFO btninfo;
@@ -387,22 +284,6 @@ int TaskBar::Notify(int id, NMHDR *pnmh)
             }
             break;
         }
-        case TBN_DROPDOWN: {
-            // Get the coordinates of the button.
-            RECT rc;
-            Point pt(GetMessagePos());
-            ScreenToClient(pnmh->hwndFrom, &pt);
-            TBBUTTONINFO btninfo;
-            btninfo.cbSize = sizeof(TBBUTTONINFO);
-            btninfo.dwMask = TBIF_BYINDEX | TBIF_COMMAND;
-            int idx = (int)SendMessage(_htoolbar, TB_HITTEST, 0, (LPARAM)&pt);
-            if (idx >= 0 &&
-                SendMessage(_htoolbar, TB_GETBUTTONINFO, idx, (LPARAM)&btninfo) != -1) {
-                DestoryThumbnailWindow();
-                Command(btninfo.idCommand, WM_CLOSE);
-            }
-            break;
-        }
         case NM_CUSTOMDRAW: {
             LPNMTBCUSTOMDRAW lptbcd = (LPNMTBCUSTOMDRAW)pnmh;
             switch (lptbcd->nmcd.dwDrawStage) {
@@ -411,75 +292,14 @@ int TaskBar::Notify(int id, NMHDR *pnmh)
             case CDDS_ITEMPREPAINT: {
                 lptbcd->clrText = TASKBAR_TEXTCOLOR();
 #define CDRF_USECDCOLORS 0x00800000
-                return CDRF_NOTIFYPOSTPAINT | CDRF_USECDCOLORS; //Windows vista later
-            }
-            case CDDS_ITEMPOSTPAINT: {
-                if (hbrTaskLine) {
-                    lptbcd->nmcd.hdc;
-                    RECT rect = lptbcd->nmcd.rc;
-                    rect.top = DESKTOPBARBAR_HEIGHT - 4;
-                    rect.bottom = rect.top + 2;
-                    if (((lptbcd->nmcd.uItemState & CDIS_CHECKED) != CDIS_CHECKED) &&
-                        ((lptbcd->nmcd.uItemState & CDIS_HOT) != CDIS_HOT)) {
-                        rect.left += 4;
-                        rect.right -= 4;
-                    } else {
-                        if (_task_close_button) {
-                            rect.left -= 2;
-                            rect.right += 2;
-                        }
-                    }
-
-                    if (g_Globals._isDebug) {
-                        _log_(FmtString(TEXT("TaskBar::Notify(NM_CUSTOMDRAW) %d"), lptbcd->nmcd.uItemState));
-                    }
-
-                    if (lptbcd->nmcd.uItemState == 0 && _thumbnail) {
-                        KillTimer(_hwnd, ID_TIMER_DESTORYTHUMBNAIL);
-                        SetTimer(_hwnd, ID_TIMER_DESTORYTHUMBNAIL, 500, NULL);
-                        //DestoryThumbnailWindow();
-                    }
-                    FillRect(lptbcd->nmcd.hdc, &rect, hbrTaskLine);
-                }
+                return CDRF_USECDCOLORS; //Windows vista later
                 return CDRF_DODEFAULT;
             }
             default:
                 return CDRF_DODEFAULT;
             }
         }
-        case TBN_HOTITEMCHANGE: {
-            if (_thumbnail) {
-                TBBUTTONINFO btninfo;
-                TaskBarMap::iterator it;
-                Point pt(GetMessagePos());
-                ScreenToClient(_htoolbar, &pt);
-
-                btninfo.cbSize = sizeof(TBBUTTONINFO);
-                btninfo.dwMask = TBIF_BYINDEX | TBIF_COMMAND;
-
-                int idx = (int)SendMessage(_htoolbar, TB_HITTEST, 0, (LPARAM)&pt);
-
-                if (idx >= 0 &&
-                    SendMessage(_htoolbar, TB_GETBUTTONINFO, idx, (LPARAM)&btninfo) != -1 &&
-                    (it = _map.find_id(btninfo.idCommand)) != _map.end()) {
-                    //TaskBarEntry& entry = it->second;
-
-                    _log_(FmtString(TEXT("TaskBar::Notify(TBN_HOTITEMCHANGE) %d"), idx));
-                    //ActivateApp(it, false, false);  // don't restore minimized windows on right button click
-                    HWND hTaskWindow = it->first;
-                    DrawThumbnailWindow(g_Globals._hInstance, hTaskWindow, NULL, NULL, idx);
-                }
-            }
-            return super::Notify(id, pnmh);
-        }
-        case TBN_GETINFOTIPA:
-        case TBN_GETINFOTIPW:
-            if (_thumbnail) {
-                KillTimer(_hwnd, ID_TIMER_DESTORYTHUMBNAIL);
-            }
-            break;
         default:
-            _log_(FmtString(TEXT("TaskBar::Notify(%d)"), pnmh->code));
             return super::Notify(id, pnmh);
         }
     }
@@ -656,17 +476,9 @@ BOOL CALLBACK TaskBar::EnumWndProc(HWND hwnd, LPARAM lparam)
             if (!last_id)
                 found->second._id = pThis->_next_id++;
         } else {
-            HBITMAP hbmp = NULL;
-            HICON hIcon = NULL;
+            HBITMAP hbmp;
+            HICON hIcon = get_window_icon_big(hwnd);
             BOOL delete_icon = FALSE;
-
-            if (str_title == TEXT("ConsoleWindowClass")) {
-                hIcon = g_Globals._icon_cache.get_icon(ICID_CMDEXE).get_hicon();
-            }
-
-            if (!hIcon) {
-                hIcon = get_window_icon_big(hwnd);
-            }
 
             if (!hIcon) {
                 hIcon = LoadIcon(0, IDI_APPLICATION);
@@ -674,16 +486,7 @@ BOOL CALLBACK TaskBar::EnumWndProc(HWND hwnd, LPARAM lparam)
             }
 
             if (hIcon) {
-                RECT rect = _icon_area;
-
-#ifdef _DEBUG
-                ICONINFO iconInfo;
-                GetIconInfo(hIcon, &iconInfo);
-
-                BITMAP biIcon;
-                GetObject(iconInfo.hbmColor, sizeof(BITMAP), &biIcon);
-#endif
-                hbmp = create_bitmap_from_icon(hIcon, TASKBAR_BRUSH(), WindowCanvas(pThis->_htoolbar), TASKBAR_ICON_SIZE, rect);
+                hbmp = create_bitmap_from_icon(hIcon, TASKBAR_BRUSH(), WindowCanvas(pThis->_htoolbar), TASKBAR_ICON_SIZE);
                 if (delete_icon)
                     DestroyIcon(hIcon); // some icons can be freed, some not - so ignore any error return of DestroyIcon()
             } else
@@ -701,13 +504,9 @@ BOOL CALLBACK TaskBar::EnumWndProc(HWND hwnd, LPARAM lparam)
 
             pThis->_map[hwnd] = entry;
             found = pThis->_map.find(hwnd);
-            _log_(FmtString(TEXT("TaskBar::AddButton %s"), str_title.c_str()));
         }
 
         TBBUTTON btn = { -2/*I_IMAGENONE*/, 0, TBSTATE_ENABLED/*|TBSTATE_ELLIPSES*/, BTNS_BUTTON, {0, 0}, 0, 0};
-        if (pThis->_task_close_button) {
-            btn.fsStyle = BTNS_DROPDOWN;
-        }
         TaskBarEntry &entry = found->second;
 
         ++entry._used;
@@ -767,25 +566,6 @@ BOOL CALLBACK TaskBar::EnumWndProc(HWND hwnd, LPARAM lparam)
     }
 
     return TRUE;
-}
-
-void TaskBar::ApplyBackgroundStyle()
-{
-    static String bkmode = TEXT("-");
-    int transparency = 100;
-    COLORREF transparency_color = 0;
-    if (bkmode == TEXT("")) return;
-
-    if (bkmode == TEXT("-")) {
-        bkmode = TASKBAR_GETBKMODE().ToString();
-        if (bkmode == TEXT("opaque")) {
-            bkmode = TEXT("");
-            return;
-        }
-        transparency = TASKBAR_GETBKTRANSPARENCY(100);
-        transparency_color = TASKBAR_GETBKTRANSPARENCYCOLOR();
-    }
-    TaskbarTransparency(GetParent(_hwnd), bkmode.c_str(), transparency, transparency_color);
 }
 
 void TaskBar::Refresh()
@@ -876,7 +656,6 @@ void TaskBar::ResizeButtons()
 
     if (btns > 0) {
         int bar_width = ClientRect(_hwnd).right;
-        if (_task_close_button) bar_width -= btns * 20;
         int btn_width = (bar_width / btns) - 3;
 
         if (btn_width < TASKBUTTONWIDTH_MIN)

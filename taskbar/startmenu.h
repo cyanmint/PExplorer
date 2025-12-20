@@ -35,7 +35,6 @@
 #define STARTMENU_SEP_HEIGHT(icon_size)     (STARTMENU_LINE_HEIGHT(icon_size)/2)
 #define STARTMENU_TOP_BTN_SPACE             8
 
-#define NO_EXEEXT_FLAG 0x0001
 
 // private message constants
 #define PM_STARTMENU_CLOSED     (WM_APP+0x11)
@@ -111,7 +110,7 @@ struct StartMenuCtrl : public Button {
     {
         *new StartMenuButton(_hwnd, hIcon, hasSubmenu);
 
-        SetWindowFont(_hwnd, g_Globals._hDefaultFont, FALSE);
+        SetWindowFont(_hwnd, GetStockFont(DEFAULT_GUI_FONT), FALSE);
     }
 };
 
@@ -222,7 +221,6 @@ protected:
 
     // data members
     int     _next_id;
-    int     _name_flags;
     ShellEntryMap _entries;
     StartMenuShellDirs _dirs;
 
@@ -287,7 +285,7 @@ protected:
     void    ActivateEntry(int id, const ShellEntrySet &entries);
     virtual void CloseStartMenu(int id = 0);
 
-    int     GetButtonRect(int id, PRECT prect) const;
+    bool    GetButtonRect(int id, PRECT prect) const;
 
     void    DrawFloatingButton(HDC hdc);
     void    GetFloatingButtonRect(LPRECT prect);
@@ -301,7 +299,7 @@ protected:
 
 
 // declare shell32's "Run..." dialog export function
-typedef void (WINAPI *RUNFILEDLG)(HWND hwndOwner, HICON hIcon, LPCTSTR lpstrDirectory, LPCTSTR lpstrTitle, LPCTSTR lpstrDescription, UINT uFlags);
+typedef void (WINAPI *RUNFILEDLG)(HWND hwndOwner, HICON hIcon, LPCSTR lpstrDirectory, LPCSTR lpstrTitle, LPCSTR lpstrDescription, UINT uFlags);
 
 //
 // Flags for RunFileDlg

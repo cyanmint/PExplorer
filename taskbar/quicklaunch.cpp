@@ -32,9 +32,6 @@
 
 #include "quicklaunch.h"
 
-#include <Uxtheme.h>
-
-#define WM_SHNOTIFY  (WM_USER+0x1)
 
 QuickLaunchEntry::QuickLaunchEntry()
 {
@@ -60,39 +57,17 @@ QuickLaunchBar::QuickLaunchBar(HWND hwnd)
     _next_id = IDC_FIRST_QUICK_ID;
     _btn_dist = 20;
     _size = 0;
-    _fixed_btn = 0;
-    _path[0] = TEXT('\0');
-    _need_reload = 1;
-    _hSHNotify = 0;
-
-    _btn_width = JCFG2_DEF("JS_QUICKLAUNCH", "button_width", DESKTOPBARBAR_HEIGHT).ToInt();
-    _icon_area = { 0, -2, _btn_width, DESKTOPBARBAR_HEIGHT };
-
-    String msstyle_button = JCFG2_DEF("JS_QUICKLAUNCH", "msstyle_button", TEXT("Taskbar")).ToString();
-    if (msstyle_button != TEXT("")) {
-        SetWindowTheme(hwnd, msstyle_button, L"Toolbar"); //TaskBar
-        if (msstyle_button == TEXT("BB")) {
-            _icon_area.top = -4;
-        }
-    }
 
     HWND hwndToolTip = (HWND) SendMessage(hwnd, TB_GETTOOLTIPS, 0, 0);
 
     SetWindowStyle(hwndToolTip, GetWindowStyle(hwndToolTip) | TTS_ALWAYSTIP);
 
-    SendMessage(hwnd, TB_SETBUTTONWIDTH, 0, MAKELPARAM(_btn_width, _btn_width));
-    SendMessage(hwnd, TB_SETBITMAPSIZE, 0, MAKELPARAM(_btn_width, DESKTOPBARBAR_HEIGHT));
-
     // delay refresh to some time later
     PostMessage(hwnd, PM_REFRESH, 0, 0);
-    // SetTimer(hwnd, PM_RELOAD_BUTTONS, 10000, NULL);
-
 }
 
 QuickLaunchBar::~QuickLaunchBar()
 {
-    if (_hSHNotify != 0)
-        SHChangeNotifyDeregister(_hSHNotify);
     delete _dir;
 }
 
@@ -106,7 +81,7 @@ HWND QuickLaunchBar::Create(HWND hwndParent)
                                 WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN |
                                 CCS_TOP | CCS_NODIVIDER | CCS_NOPARENTALIGN | CCS_NORESIZE |
                                 TBSTYLE_TOOLTIPS | TBSTYLE_WRAPABLE | TBSTYLE_FLAT,
-                                IDW_QUICKLAUNCHBAR, 0, 0, 0, NULL, 0, 0, 0, DESKTOPBARBAR_HEIGHT - 4, DESKTOPBARBAR_HEIGHT, sizeof(TBBUTTON));
+                                IDW_QUICKLAUNCHBAR, 0, 0, 0, NULL, 0, 0, 0, TASKBAR_ICON_SIZE, TASKBAR_ICON_SIZE, sizeof(TBBUTTON));
 
     if (hwnd) {
         new QuickLaunchBar(hwnd);
@@ -116,13 +91,15 @@ HWND QuickLaunchBar::Create(HWND hwndParent)
 
 void QuickLaunchBar::ReloadShortcuts()
 {
-    /*
     int cnt = 0;
     static ShellDirectory *shelldir = NULL;
-
     try {
+        static TCHAR path[MAX_PATH];
+        SpecialFolderFSPath app_data(CSIDL_APPDATA, _hwnd); ///@todo perhaps also look into CSIDL_COMMON_APPDATA ?
+        _stprintf(path, TEXT("%s\\")QUICKLAUNCH_FOLDER, (LPCTSTR)app_data);
+        RecursiveCreateDirectory(path);
         if (!shelldir) {
-            shelldir = new ShellDirectory(GetDesktopFolder(), _path, _hwnd);
+            shelldir = new ShellDirectory(GetDesktopFolder(), path, _hwnd);
         }
         shelldir->_scanned = false;
         shelldir->smart_scan(SORT_NAME, SCAN_DONT_EXTRACT_ICONS | SCAN_DONT_ACCESS | SCAN_NO_DIRECTORY);
@@ -142,10 +119,9 @@ void QuickLaunchBar::ReloadShortcuts()
         cnt = 0;
     }
 
-    if (_entries.size() == cnt + _fixed_btn) {
+    if (_entries.size() == cnt + 2) {
         return;
     }
-    */
 
     _next_id = IDC_FIRST_QUICK_ID;
     _entries.clear();
@@ -165,16 +141,16 @@ void QuickLaunchBar::AddShortcuts()
     WaitCursor wait;
 
     try {
-        String quicklaunch_folder = JCFG2_DEF("JS_QUICKLAUNCH", "folder", QUICKLAUNCH_FOLDER).ToString();
+        TCHAR path[MAX_PATH];
+
         SpecialFolderFSPath app_data(CSIDL_APPDATA, _hwnd); ///@todo perhaps also look into CSIDL_COMMON_APPDATA ?
 
-        if (_path[0] == TEXT('\0')) {
-            _stprintf(_path, TEXT("%s\\%s"), (LPCTSTR)app_data, quicklaunch_folder.c_str());
-            RecursiveCreateDirectory(_path);
-        }
+        _stprintf(path, TEXT("%s\\")QUICKLAUNCH_FOLDER, (LPCTSTR)app_data);
+
+        RecursiveCreateDirectory(path);
 
         if (!_dir) {
-            _dir = new ShellDirectory(GetDesktopFolder(), _path, _hwnd);
+            _dir = new ShellDirectory(GetDesktopFolder(), path, _hwnd);
         }
         _dir->_scanned = false;
         _dir->smart_scan(SORT_NAME, SCAN_DONT_ACCESS | SCAN_NO_DIRECTORY);
@@ -193,37 +169,14 @@ void QuickLaunchBar::AddShortcuts()
     COLORREF bk_color = TASKBAR_TEXTCOLOR();
     HBRUSH bk_brush = TASKBAR_BRUSH(); //GetSysColorBrush(COLOR_BTNFACE);
 
+    AddButton(ID_MINIMIZE_ALL, g_Globals._icon_cache.get_icon(ICID_MINIMIZE).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE), ResString(IDS_MINIMIZE_ALL), NULL);
+    AddButton(ID_EXPLORE, g_Globals._icon_cache.get_icon(ICID_EXPLORER).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE), ResString(IDS_TITLE), NULL);
 
-    static int bHideShowDesktop = -1;
-    static int bHideFileExplorer = -1;
-    static int bHideFixedSep = -1;
-    static int bHideUserIcons = -1;
-    if (bHideShowDesktop == -1) {
-        bHideShowDesktop = JCFG2_DEF("JS_QUICKLAUNCH", "hide_showdesktop", false).ToBool() ? 1 : 0;
-        bHideFileExplorer = JCFG2_DEF("JS_QUICKLAUNCH", "hide_fileexplorer", false).ToBool() ? 1 : 0;
-        bHideFixedSep = JCFG2_DEF("JS_QUICKLAUNCH", "hide_fixedsep", false).ToBool() ? 1 : 0;
-        bHideUserIcons = JCFG2_DEF("JS_QUICKLAUNCH", "hide_usericons", false).ToBool() ? 1 : 0;
-        if (bHideShowDesktop != 1) _fixed_btn++;
-        if (bHideFileExplorer != 1) _fixed_btn++;
-        if (bHideUserIcons) _need_reload = 0;
-    }
-
-    RECT rect = _icon_area;
-
-    if (bHideShowDesktop != 1) {
-        AddButton(ID_MINIMIZE_ALL, g_Globals._icon_cache.get_icon(ICID_MINIMIZE).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE, rect), ResString(IDS_MINIMIZE_ALL), NULL);
-    }
-    if (bHideFileExplorer != 1) {
-        AddButton(ID_EXPLORE, g_Globals._icon_cache.get_icon(ICID_EXPLORER).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE, rect), ResString(IDS_TITLE), NULL);
-    }
-
-    if (_fixed_btn != 0 && bHideFixedSep != 1) {
-        TBBUTTON sep = { 0, -1, TBSTATE_ENABLED, BTNS_SEP, { 0, 0 }, 0, 0 };
-        SendMessage(_hwnd, TB_INSERTBUTTON, INT_MAX, (LPARAM)&sep);
-    }
+    TBBUTTON sep = { 0, -1, TBSTATE_ENABLED, BTNS_SEP, { 0, 0 }, 0, 0 };
+    SendMessage(_hwnd, TB_INSERTBUTTON, INT_MAX, (LPARAM)&sep);
 
     int ignore = 0;
-    for (Entry *entry = _dir->_down; !bHideUserIcons && entry; entry = entry->_next) {
+    for (Entry *entry = _dir->_down; entry; entry = entry->_next) {
         // hide files like "desktop.ini"
         if (entry->_data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)
             continue;
@@ -238,7 +191,7 @@ void QuickLaunchBar::AddShortcuts()
         }
         // hide subfolders
         if (!(entry->_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            HBITMAP hbmp = g_Globals._icon_cache.get_icon(entry->_icon_id).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE, rect);
+            HBITMAP hbmp = g_Globals._icon_cache.get_icon(entry->_icon_id).create_bitmap(bk_color, bk_brush, canvas, TASKBAR_ICON_SIZE);
 
             AddButton(_next_id++, hbmp, entry->_display_name, entry);   //entry->_etype==ET_SHELL? desktop_folder.get_name(static_cast<ShellEntry*>(entry)->_pidl): entry->_display_name);
         }
@@ -246,6 +199,7 @@ void QuickLaunchBar::AddShortcuts()
 
     _btn_dist = LOWORD(SendMessage(_hwnd, TB_GETBUTTONSIZE, 0, 0));
     _size = (int)(_entries.size() * _btn_dist + 5 + 3); // 3 for BTNS_SEP
+    _size -= ignore;
     if (JCFG_TB(2, "userebar").ToBool() == TRUE) _size += 20;
 
     //adjust QuickLaunchBar width
@@ -256,23 +210,6 @@ void QuickLaunchBar::AddShortcuts()
     rbBand.cx = _size;
     SendMessage(GetParent(_hwnd), RB_SETBANDINFO, (WPARAM)0, (LPARAM)&rbBand);
     SendMessage(GetParent(_hwnd), PM_RESIZE_CHILDREN, 0, 0);
-
-    if (_need_reload == 0) return;
-
-    if (_hSHNotify != 0) return;
-
-    // register change notify
-    IShellItem *psi = NULL;
-    LPITEMIDLIST pidl_path;
-    SHCreateItemFromParsingName(_path, NULL, IID_PPV_ARGS(&psi));
-    HRESULT hr = SHGetIDListFromObject(psi, &pidl_path);
-    if (hr != S_OK) return;
-
-    SHChangeNotifyEntry ps;
-    ps.pidl = pidl_path;
-    ps.fRecursive = FALSE;
-    int fSources = SHCNRF_InterruptLevel | SHCNRF_ShellLevel;
-    _hSHNotify = SHChangeNotifyRegister(_hwnd, fSources, SHCNE_CREATE | SHCNE_DELETE | SHCNE_RENAMEITEM | SHCNE_UPDATEDIR, WM_SHNOTIFY, 1, &ps);
 }
 
 void QuickLaunchBar::AddButton(int id, HBITMAP hbmp, LPCTSTR name, Entry *entry, int flags)
@@ -296,63 +233,16 @@ void QuickLaunchBar::AddButton(int id, HBITMAP hbmp, LPCTSTR name, Entry *entry,
     SendMessage(_hwnd, TB_INSERTBUTTON, INT_MAX, (LPARAM)&btn);
 }
 
-#ifdef _DEBUG
-#define MAP_ENTRY(x) {L#x, x}
-
-PCWSTR EventName(long lEvent)
-{
-    PCWSTR psz = L"";
-
-    static const struct { PCWSTR pszName; long lEvent; } c_rgEventNames[] =
-    {
-        MAP_ENTRY(SHCNE_RENAMEITEM),
-        MAP_ENTRY(SHCNE_CREATE),
-        MAP_ENTRY(SHCNE_DELETE),
-        MAP_ENTRY(SHCNE_MKDIR),
-        MAP_ENTRY(SHCNE_RMDIR),
-        MAP_ENTRY(SHCNE_MEDIAINSERTED),
-        MAP_ENTRY(SHCNE_MEDIAREMOVED),
-        MAP_ENTRY(SHCNE_DRIVEREMOVED),
-        MAP_ENTRY(SHCNE_DRIVEADD),
-        MAP_ENTRY(SHCNE_NETSHARE),
-        MAP_ENTRY(SHCNE_NETUNSHARE),
-        MAP_ENTRY(SHCNE_ATTRIBUTES),
-        MAP_ENTRY(SHCNE_UPDATEDIR),
-        MAP_ENTRY(SHCNE_UPDATEITEM),
-        MAP_ENTRY(SHCNE_SERVERDISCONNECT),
-        MAP_ENTRY(SHCNE_DRIVEADDGUI),
-        MAP_ENTRY(SHCNE_RENAMEFOLDER),
-        MAP_ENTRY(SHCNE_FREESPACE),
-        MAP_ENTRY(SHCNE_UPDATEITEM),
-    };
-    for (int i = 0; i < ARRAYSIZE(c_rgEventNames); i++)
-    {
-        if (c_rgEventNames[i].lEvent == lEvent)
-        {
-            psz = c_rgEventNames[i].pszName;
-            break;
-        }
-    }
-    return psz;
-}
-
-void OnChangeMessage(WPARAM wparam, LPARAM lparam) {
-    long lEvent;
-    PIDLIST_ABSOLUTE *rgpidl;
-    HANDLE hNotifyLock = SHChangeNotification_Lock((HANDLE)wparam, (DWORD)lparam, &rgpidl, &lEvent);
-    if (hNotifyLock) {
-        LOG(EventName(lEvent));
-        SHChangeNotification_Unlock(hNotifyLock);
-    }
-}
-#endif
-
 LRESULT QuickLaunchBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 {
     switch (nmsg) {
     case PM_REFRESH:
         AddShortcuts();
         break;
+    case PM_RELOAD_BUTTONS: {
+        ReloadShortcuts();
+        break;
+    }
     case PM_GET_WIDTH: {
         // take line wrapping into account
         int btns = (int)SendMessage(_hwnd, TB_BUTTONCOUNT, 0, 0);
@@ -360,12 +250,12 @@ LRESULT QuickLaunchBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 
         static int maxbtns = JCFG_QL(2, "maxiconsinrow").ToInt();
         if (maxbtns < 0) maxbtns = 0;
-        if (maxbtns > 0 && maxbtns < _fixed_btn) maxbtns = _fixed_btn; // miniconsinrow = 2 Show Desktop & Explorer
+        if (maxbtns > 0 && maxbtns < 2) maxbtns = 2; // miniconsinrow = 2 Show Desktop & Explorer
         if (maxbtns == 0 || rows == btns) return _size;
-        if (btns - 1 <= maxbtns) return _size; // 1 for BTNS_SEP
+        if (btns - 1 <= maxbtns) return _size; // BTNS_SEP
 
         RECT rect;
-        int max_cx = _fixed_btn * _btn_dist + 5;
+        int max_cx = 2 * _btn_dist + 5;
 
         for (QuickLaunchMap::const_iterator it = _entries.begin(); it != _entries.end(); ++it) {
             SendMessage(_hwnd, TB_GETRECT, it->first, (LPARAM)&rect);
@@ -374,16 +264,10 @@ LRESULT QuickLaunchBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 
         if (maxbtns > 0) {
             int maxbtns_cx = maxbtns * _btn_dist + 5;  // no BTNS_SEP
-            if ((btns - _fixed_btn) > maxbtns || max_cx > maxbtns_cx) max_cx = maxbtns_cx;
+            if ((btns - 2) > maxbtns || max_cx > maxbtns_cx) max_cx = maxbtns_cx;
         }
         return max_cx;
     }
-    case WM_TIMER:
-        if (wparam == PM_RELOAD_BUTTONS) {
-            ReloadShortcuts();
-            KillTimer(_hwnd, PM_RELOAD_BUTTONS);
-        }
-        break;
     case WM_CONTEXTMENU: {
         TBBUTTON btn;
         QuickLaunchMap::iterator it;
@@ -408,13 +292,7 @@ LRESULT QuickLaunchBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
             goto def;
         break;
     }
-    case WM_SHNOTIFY:
-#ifdef _DEBUG
-        OnChangeMessage(wparam, lparam);
-#endif
-        KillTimer(_hwnd, PM_RELOAD_BUTTONS);
-        SetTimer(_hwnd, PM_RELOAD_BUTTONS, 500, NULL);
-        break;
+
 default: def:
         return super::WndProc(nmsg, wparam, lparam);
     }

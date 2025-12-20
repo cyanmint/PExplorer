@@ -214,185 +214,6 @@ BOOL launch_fileA(HWND hwnd, LPSTR cmd, UINT nCmdShow, LPCSTR parameters)
 }
 #endif
 
-void GetShortcutPath(const TCHAR *lnk, TCHAR *path, DWORD cchBuffer)
-{
-    IShellLink *psl = NULL;
-    HRESULT hr = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (LPVOID*)&psl);
-    if (SUCCEEDED(hr)) {
-        IPersistFile *ppf = NULL;
-        hr = psl->QueryInterface(IID_IPersistFile, (LPVOID *)&ppf);
-        if (SUCCEEDED(hr)) {
-            hr = ppf->Load(lnk, STGM_READ);
-            if (SUCCEEDED(hr)) {
-                WIN32_FIND_DATA wfd;
-                psl->GetPath(path, cchBuffer, &wfd, SLGP_UNCPRIORITY | SLGP_RAWPATH);
-            }
-            ppf->Release();
-        }
-        psl->Release();
-    }
-}
-
-#include "UNIBASE.h"
-
-TCHAR *CompletePath(TCHAR *target, TCHAR *out)
-{
-    TCHAR buff[MAX_PATH] = { 0 };
-    ExpandEnvironmentStrings(target, out, MAX_PATH);
-    if (PathFileExists(out)) return out;
-    StrCpy(buff, out);
-    if (SearchPath(NULL, buff, NULL, MAX_PATH, out, NULL)) {
-        return out;
-     }
-     return NULL;
-}
-
-//////////////////////////////////////////////////////////////////////////////////////////////////
-// Create shortcut
-HRESULT CreateShortcut(PTSTR lnk, PTSTR target,
-    PTSTR param = NULL, PTSTR icon = NULL,
-    int iIcon = 0, int iShowCmd = SW_SHOWNORMAL)
-{
-    if (target == NULL) {
-        return ERROR_PATH_NOT_FOUND;
-    }
-
-    // Search target
-    TCHAR tzTarget[MAX_PATH];
-    target = CompletePath(target, tzTarget);
-    if (!target) return ERROR_PATH_NOT_FOUND;
-
-    // Create shortcut
-    IShellLink *pLink = NULL;
-    CoInitialize(NULL);
-    HRESULT hResult = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (PVOID *)&pLink);
-    if (hResult == S_OK) {
-        IPersistFile *pFile = NULL;
-        hResult = pLink->QueryInterface(IID_IPersistFile, (PVOID *)&pFile);
-        if (hResult == S_OK) {
-            // Shortcut settings
-            if (iShowCmd > SW_SHOWNORMAL) {
-                if (iShowCmd == SW_SHOWMINIMIZED) iShowCmd = SW_SHOWMINNOACTIVE;
-                hResult = pLink->SetShowCmd(iShowCmd);
-            }
-
-            hResult = pLink->SetPath(target);
-            hResult = pLink->SetArguments(param);
-            hResult = pLink->SetIconLocation(icon, iIcon);
-
-            if (DirSplitPath(target) != target) {
-                hResult = pLink->SetWorkingDirectory(target);
-            }
-
-            // Save link
-            TCHAR tzLink[MAX_PATH];
-            ExpandEnvironmentStrings(lnk, tzLink, MAX_PATH);
-            DirCreate(tzLink);
-            hResult = pFile->Save(tzLink, FALSE);
-            pFile->Release();
-        }
-        pLink->Release();
-    }
-    CoUninitialize();
-    return hResult;
-}
-//////////////////////////////////////////////////////////////////////////////////////////////////
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-static BOOL ShellExecuteWithSEInfo(SHELLEXECUTEINFO &ei, TCHAR *cmd)
-{
-    TCHAR paramSep = _T(' ');
-    TCHAR *cp = cmd;
-    if (cmd[0] == _T('\"') || cmd[0] == _T('\'')) {
-        cp = cmd + 1;
-        paramSep = cmd[0];
-    }
-
-    {
-        while (*cp != _T('\0') && *cp != paramSep) {
-            if (paramSep != _T(' ')) *(cp - 1) = *cp;
-            cp++;
-        }
-        if (paramSep != _T(' ')) {
-            *(cp - 1) = _T('\0');
-            cp++;
-        } else {
-            *cp = _T('\0');
-        }
-        ei.lpParameters = cp + 1;
-    }
-    return ShellExecuteEx(&ei);
-}
-
-// Execute command
-DWORD Exec(PTSTR ptzCmd, BOOL bWait, INT iShowCmd, PTSTR ptzVerb)
-{
-    HANDLE hProcess = NULL;
-    HANDLE hThread = NULL;
-    DWORD dwExitCode = 0;
-    DWORD dwCreationFlags = 0;
-    TCHAR tzExpandCmd[MAX_PATH * 10];
-    ExpandEnvironmentStrings(ptzCmd, tzExpandCmd, MAX_PATH * 10);
-
-    BOOL bResult = FALSE;
-    if (ptzVerb && ptzVerb[0] != _T('\0')) {
-        SHELLEXECUTEINFO ei = { sizeof(ei) };
-        ei.fMask = SEE_MASK_INVOKEIDLIST;
-        ei.hwnd = NULL;
-        ei.nShow = iShowCmd;
-        ei.lpVerb = ptzVerb;
-        ei.lpFile = tzExpandCmd;
-
-        bResult = ShellExecuteWithSEInfo(ei, tzExpandCmd);
-        if (!bResult) return S_FALSE;
-
-        hProcess = ei.hProcess;
-    } else {
-        STARTUPINFO si = { 0 };
-        PROCESS_INFORMATION pi;
-        si.cb = sizeof(STARTUPINFO);
-        si.lpDesktop = TEXT("WinSta0\\Default");
-        si.dwFlags = STARTF_USESHOWWINDOW;
-        si.wShowWindow = iShowCmd;
-        if (iShowCmd == SW_HIDE) {
-            // si.lpDesktop = NULL;
-            dwCreationFlags = CREATE_NO_WINDOW;
-        }
-        bResult = CreateProcess(NULL, tzExpandCmd, NULL, NULL, FALSE, dwCreationFlags, NULL, NULL, &si, &pi);
-        if (!bResult) return S_FALSE;
-
-        hProcess = pi.hProcess;
-        hThread = pi.hThread;
-    }
-
-    if (bWait && hProcess) {
-        WaitForSingleObject(hProcess, INFINITE);
-        GetExitCodeProcess(hProcess, &dwExitCode);
-    }
-
-    if (hThread) CloseHandle(hThread);
-    if (hProcess) CloseHandle(hProcess);
-    return dwExitCode;
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-int CommandHook(HWND hwnd, const TCHAR *act, const TCHAR *sect)
-{
-    String cmd = TEXT("");
-    INT showflags = SW_SHOWNORMAL;
-    String parameters = TEXT("");
-    if (!hwnd) return 0;
-    cmd = JCFG_CMDW(sect, act, "command", TEXT("")).ToString();
-    if (cmd != TEXT("")) {
-        showflags = JCFG_CMDW(sect, act, "showflags", showflags).ToInt();
-        parameters = JCFG_CMDW(sect, act, "parameters", TEXT("")).ToString();
-        launch_file(hwnd, cmd, showflags, parameters);
-        return 1;
-    }
-    return 0;
-}
 
 BOOL HandleEnvChangeBroadcast(LPARAM lparam)
 {
@@ -736,53 +557,33 @@ bool SplitFileSysURL(LPCTSTR url, String &dir_out, String &fname_out)
         return false;
 }
 
-
-static char *getmsgstr(UINT msgid)
+std::string w2s(const std::wstring& wstr)
 {
-    char *msg = NULL;
-    static char buff[200];
-    switch (msgid) {
-    case WM_COMMAND:msg = ("WM_COMMAND"); break;
-    case WM_NOTIFY:msg = ("WM_NOTIFY"); break;
-    case WM_CONTEXTMENU: msg = ("WM_CONTEXTMENU"); break;
-    case WM_INITDIALOG: msg = ("WM_INITDIALOG"); break;
-    case WM_ACTIVATEAPP: msg = ("WM_ACTIVATEAPP"); break;
-    case WM_STYLECHANGING: msg = ("WM_STYLECHANGING"); break;
-    case WM_STYLECHANGED: msg = ("WM_STYLECHANGED"); break;
-    case WM_NCPAINT: msg = ("WM_NCPAINT"); break;
-    case WM_NCACTIVATE: msg = ("WM_NCACTIVATE"); break;
-    case WM_CHANGEUISTATE: msg = ("WM_CHANGEUISTATE"); break;
-    case WM_ACTIVATE: msg = ("WM_ACTIVATE"); break;
-    case WM_SHOWWINDOW: msg = ("WM_SHOWWINDOW"); break;
-    case WM_CTLCOLORDLG: msg = ("WM_CTLCOLORDLG"); break;
-    case WM_PRINTCLIENT: msg = ("WM_PRINTCLIENT"); break;
-    case WM_SETCURSOR: msg = ("WM_SETCURSOR"); break;
-    case WM_LBUTTONUP: msg = ("WM_LBUTTONUP"); break;
-    case WM_LBUTTONDBLCLK: msg = ("WM_LBUTTONDBLCLK"); break;
-    case WM_RBUTTONDOWN: msg = ("WM_RBUTTONDOWN"); break;
-    case WM_RBUTTONUP: msg = ("WM_RBUTTONUP"); break;
-    case WM_RBUTTONDBLCLK: msg = ("WM_RBUTTONDBLCLK"); break;
-    case WM_MBUTTONDOWN: msg = ("WM_MBUTTONDOWN"); break;
-    case WM_MBUTTONUP: msg = ("WM_MBUTTONUP"); break;
-    case WM_NCHITTEST: msg = ("WM_NCHITTEST"); break;
-    default:
-        sprintf_s(buff, 200, "0x%x", msgid);
-        return buff;
-    }
-    return msg;
+    int len = 0;
+    const wchar_t *srcTemp = wstr.c_str();
+    char *destTemp = NULL;
+
+    len = WideCharToMultiByte(CP_ACP, 0, srcTemp, -1, NULL, 0, NULL, NULL);
+    destTemp = new char[len];
+    WideCharToMultiByte(CP_ACP, 0, srcTemp, -1, destTemp, len, NULL, NULL);
+
+    std::string str = destTemp;
+    delete[]destTemp;
+    return str;
 }
 
-#ifndef LOGA
-extern void _logA_(LPCSTR txt);
-
-#define LOGA(txt) _logA_(txt)
-#endif
-void PrintMessage(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+std::string w2s(const wchar_t *wstr)
 {
-    char buff[200];
-    if (message != WM_SETCURSOR && message != WM_NCMOUSEMOVE && message != WM_MOUSEMOVE) {
-        sprintf_s(buff, 200, "hWnd:0x%x %s 0x%x 0x%x\r\n", hWnd, getmsgstr(message), wParam, lParam);
-        LOGA(buff);
-    }
+    int len = 0;
+    const wchar_t *srcTemp = wstr;
+    char *destTemp = NULL;
+
+    len = WideCharToMultiByte(CP_ACP, 0, srcTemp, -1, NULL, 0, NULL, NULL);
+    destTemp = new char[len];
+    WideCharToMultiByte(CP_ACP, 0, srcTemp, -1, destTemp, len, NULL, NULL);
+
+    std::string str = destTemp;
+    delete[]destTemp;
+    return str;
 }
 

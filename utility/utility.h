@@ -81,13 +81,6 @@ using namespace std;
 
 #define W_VER_NT 0  // constant for HIWORD(GetVersion())>>14
 
-#ifndef string_t
-#ifdef UNICODE
-#define string_t std::wstring
-#else
-#define string_t string
-#endif
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,7 +100,7 @@ extern "C" {
 
 
 extern void _log_(LPCTSTR txt);
-#define LOGT(txt) _log_(TEXT(txt))
+
 #define LOG(txt) _log_(txt)
 
 
@@ -260,9 +253,6 @@ extern BOOL launch_fileA(HWND hwnd, LPSTR cmd, UINT nCmdShow = SW_SHOWNORMAL, LP
 #define launch_fileA launch_file
 #endif
 
-extern int CommandHook(HWND hwnd, const TCHAR *act, const TCHAR *sect);
-extern void GetShortcutPath(const TCHAR *lnk, TCHAR *path, DWORD cchBuffer);
-
 extern BOOL HandleEnvChangeBroadcast(LPARAM lparam);
 
 // call an DLL export like rundll32
@@ -271,7 +261,6 @@ extern BOOL RunDLL(HWND hwnd, LPCTSTR dllname, LPCSTR procname, LPCTSTR cmdline,
 // launch control panel applet
 extern BOOL launch_cpanel(HWND hwnd, LPCTSTR applet);
 
-DWORD Exec(PTSTR ptzCmd, BOOL bWait = TRUE, INT iShowCmd = SW_NORMAL, PTSTR ptzVerb = NULL);
 
 /// initialization of windows common controls
 struct CommonControlInit {
@@ -471,11 +460,6 @@ struct Point : public POINT {
     operator LPPOINT() {return this;}
 };
 
-//fix error C2872: 'Point' : ambiguous symbol (gdiplustypes.h)
-struct UtilPoint : public Point {
-    UtilPoint(LONG x_, LONG y_) : Point(x_, y_) {};
-    UtilPoint(LPARAM lparam) : Point(lparam) {};
-};
 
 /// transform coordinates in a RECT from client to screen coordiantes
 inline void ClientToScreen(HWND hwnd, RECT *prect)
@@ -922,7 +906,7 @@ struct FmtStringA : public string {
 };
 
 struct FmtString : public String {
-    FmtString(LPCWSTR fmt, ...)
+    FmtString(LPCTSTR fmt, ...)
     {
         va_list l;
 
@@ -1110,6 +1094,5 @@ protected:
 
 extern bool SplitFileSysURL(LPCTSTR url, String &dir_out, String &fname_out);
 
-void PrintMessage(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
 #endif // __cplusplus

@@ -2,14 +2,6 @@
 // Microsoft Visual C++ generated include file.
 // Used by explorer_intres.rc
 //
-
-//
-// Version
-//
-#define PRODUCT_VERSION_STR "5.1.4.0"
-#define PRODUCT_COPYRIGHT_STR "(c) 2015-2024 Slore"
-#define RELEASE_DATE 20,24,08,08
-
 #define IDS_TITLE                       1
 #define MANIFEST_RESOURCE_ID            1
 #define IDS_START                       2
@@ -66,19 +58,15 @@
 #define IDB_TOOLBAR                     103
 #define IDI_EMPTY                       103
 #define IDA_EXPLORER                    104
-#define IDI_EMPTY2                      104
 #define ID_ACTIVATE                     105
 #define IDD_SEARCH_PROGRAM              105
-#define IDI_CMD24                       105
 #define IDB_DRIVEBAR                    106
 #define IDD_DESKBAR_DESKTOP             106
 #define IDB_IMAGES                      107
 #define IDD_EXECUTE                     108
 #define IDR_MAINFRAME                   109
-#define IDR_LUA_HELPER                  110
-#define IDR_APP_HELPERS                 111
+#define IDM_MDIFRAME                    110
 #define ID_EXECUTE                      111
-#define IDM_MDIFRAME                    112
 #define IDM_SDIFRAME                    113
 #define IDI_LOGOFF                      124
 #define IDI_FOLDERARROW                 125
@@ -86,21 +74,15 @@
 #define IDI_ARROW_SELECTED              126
 #define IDI_SHUTDOWN                    127
 #define IDI_TERMINATE                   128
-#define IDB_LOGOV16                     129
+#define IDB_LOGOV                       129
 #define IDB_LOGOV256                    130
-#define IDB_LOGOV                       200
-#define IDB_LOGOV_WIN                   201
-#define IDB_LOGOV_PE                    202
-#define IDB_LOGOV_CTM1                  211
-#define IDB_LOGOV_CTM2                  212
-#define IDB_LOGOV_CTM3                  213
 #define IDA_SEARCH_PROGRAM              133
 #define IDI_APPICON                     134
 #define IDA_DESKTOP                     134
 #define IDI_FLOATING                    135
 #define IDA_TRAYNOTIFY                  135
 #define IDD_ABOUT_EXPLORER              135
-#define IDI_WINXSHELL_BIG               137
+#define IDI_WINXSHELL_BIG                137
 #define IDI_DOCUMENTS                   138
 #define IDI_CONFIG                      139
 #define IDI_FAVORITES                   140
@@ -112,7 +94,7 @@
 #define IDI_SEARCH_DOC                  146
 #define IDI_PRINTER                     147
 #define IDI_NETWORK                     148
-#define IDI_WINXSHELL                   149
+#define IDI_WINXSHELL                    149
 #define IDM_DESKTOPBAR                  150
 #define IDM_VOLUME                      151
 #define IDM_NOTIFYAREA                  152
@@ -133,6 +115,7 @@
 #define IDI_SPEAKER                     162
 #define IDB_ICON_ALIGN_10               163
 #define IDI_DOT                         163
+#define IDB_LOGOV16                     164
 #define IDI_DOT_TRANS                   164
 #define IDI_DOT_RED                     165
 #define IDI_ARROW_UP                    166
@@ -151,45 +134,7 @@
 #define IDI_NOTIFY_L_B                  202
 #define IDI_NOTIFY_R_B                  203
 #define IDI_STARTMENU_W                 210
-#define IDI_STARTMENU_W2                211
-#define IDI_STARTMENU_B                 212
-#define IDI_STARTMENU_B2                213
-#define IDI_SM_CUSTOM_1                 214
-#define IDI_SM_CUSTOM_2                 215
-#define IDI_TRAY_SND_NONE               220
-#define IDI_TRAY_SND_MUTE               221
-#define IDI_TRAY_SND_SMALL              222
-#define IDI_TRAY_SND_MIDDLE             223
-#define IDI_TRAY_SND_LARGE              224
-#define IDI_TRAY_DARK_SND_NONE               225
-#define IDI_TRAY_DARK_SND_MUTE               226
-#define IDI_TRAY_DARK_SND_SMALL              227
-#define IDI_TRAY_DARK_SND_MIDDLE             228
-#define IDI_TRAY_DARK_SND_LARGE              229
-#define IDI_TRAY_NET_WIRED_DIS          230
-#define IDI_TRAY_NET_WIRED_LAN          231
-#define IDI_TRAY_NET_WIRED_INTERNET     232
-#define IDI_TRAY_NET_WIRELESS_DIS       233
-#define IDI_TRAY_NET_WIRELESS_NOCONN_LEGACY  234
-#define IDI_TRAY_NET_WIRELESS_NOCONN    235
-#define IDI_TRAY_NET_WIRELESS_LAN       236
-#define IDI_TRAY_NET_SIGNAL_NONE        237
-#define IDI_TRAY_NET_SIGNAL_QUARTER1    238
-#define IDI_TRAY_NET_SIGNAL_QUARTER2    239
-#define IDI_TRAY_NET_SIGNAL_QUARTER3    240
-#define IDI_TRAY_NET_SIGNAL_QUARTER4    241
-#define IDI_TRAY_DARK_NET_WIRED_DIS          242
-#define IDI_TRAY_DARK_NET_WIRED_LAN          243
-#define IDI_TRAY_DARK_NET_WIRED_INTERNET     244
-#define IDI_TRAY_DARK_NET_WIRELESS_DIS       245
-#define IDI_TRAY_DARK_NET_WIRELESS_NOCONN_LEGACY  246
-#define IDI_TRAY_DARK_NET_WIRELESS_NOCONN    247
-#define IDI_TRAY_DARK_NET_WIRELESS_LAN       248
-#define IDI_TRAY_DARK_NET_SIGNAL_NONE        249
-#define IDI_TRAY_DARK_NET_SIGNAL_QUARTER1    250
-#define IDI_TRAY_DARK_NET_SIGNAL_QUARTER2    251
-#define IDI_TRAY_DARK_NET_SIGNAL_QUARTER3    252
-#define IDI_TRAY_DARK_NET_SIGNAL_QUARTER4    253
+#define IDI_STARTMENU_B                 211
 #define ID_VIEW_NAME                    401
 #define ID_VIEW_ALL_ATTRIBUTES          402
 #define ID_VIEW_SELECTED_ATTRIBUTES     403
@@ -232,16 +177,14 @@
 #define IDC_PICTURE                     1062
 #define IDC_CHECK_ENTRIES               1063
 #define IDC_VERSION_TXT                 1064
-#define IDC_COPYRIGHT_TXT               1065
-#define IDC_WIN_VERSION                 1066
-#define IDC_MDI                         1067
-#define IDC_SDI                         1068
-#define IDC_SEPARATE_SUBFOLDERS         1069
+#define IDC_WIN_VERSION                 1065
+#define IDC_MDI                         1066
+#define IDC_SDI                         1067
+#define IDC_SEPARATE_SUBFOLDERS         1068
 #define IDC_WWW                         1100
 #define ID_REFRESH                      1704
 #define IDS_VERSION_STR                 5000
 #define IDS_EXPLORER_VERSION_STR        5001
-#define IDS_COPYRIGHT_STR               5002
 #define IDC_FILETREE                    10001
 #define ID_EXPLORER_FAQ                 10002
 #define ID_WEB_WINDOW                   10003
@@ -276,7 +219,6 @@
 #define ID_VIEW_SDI                     40020
 #define ID_TOOLS_OPTIONS                40021
 #define ID_SHOW_ICON_BUTTON             40023
-#define ID_TRAY_NETWORK                 40030
 #define ID_SWITCH_DESKTOP_1             50000
 #define ID_WINDOW_NEW                   0xE130
 #define ID_WINDOW_ARRANGE               0xE131
@@ -294,7 +236,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        112
+#define _APS_NEXT_RESOURCE_VALUE        104
 #define _APS_NEXT_COMMAND_VALUE         40001
 #define _APS_NEXT_CONTROL_VALUE         1000
 #define _APS_NEXT_SYMED_VALUE           101

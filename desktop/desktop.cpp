@@ -34,10 +34,6 @@
 #include "../taskbar/desktopbar.h"
 #include "../taskbar/taskbar.h" // for PM_GET_LAST_ACTIVE
 
-#include <VersionHelpers.h>
-
-#include "../systemsettings/DesktopCommand.h"
-
 enum WallPaperStyle {
     STYLE_WP_STRETCH = 0,
     STYLE_WP_TILE,
@@ -94,13 +90,12 @@ static BOOL CALLBACK MinimizeWindowEnumFct(HWND hwnd, LPARAM lparam)
     if (hwnd == g_Globals._hwndDesktopBar || hwnd == g_Globals._hwndDesktop) return TRUE;
     DWORD style = GetWindowStyle(hwnd);
     DWORD ex_style = GetWindowExStyle(hwnd);
-    if (IsWindowVisible(hwnd) && !IsIconic(hwnd) && (style & WS_MINIMIZEBOX) 
-        && !(ex_style & WS_EX_TOPMOST) && !(ex_style & WS_EX_TOOLWINDOW)) {
+    if (IsWindowVisible(hwnd) && !IsIconic(hwnd) && (style & WS_MINIMIZEBOX) && !(ex_style & WS_EX_TOPMOST)) {
         if (IsIgnoredWindow(hwnd)) return TRUE;
         RECT rect;
         if (GetWindowRect(hwnd, &rect)) {
             if (rect.right > 0 && rect.bottom > 0 &&
-                rect.right >= rect.left && rect.bottom >= rect.top) {
+                rect.right > rect.left && rect.bottom > rect.top) {
                 minimized.push_back(MinimizeStruct(hwnd, style));
             }
         }
@@ -298,16 +293,6 @@ HWND DesktopWindow::Create()
 }
 
 #define WM_SHNOTIFY  (WM_USER+0x1)
-#define WM_USERCOMMAND (WM_USER+WM_COMMAND)
-
-#ifndef _WIN32_WINNT_WIN10
-#define _WIN32_WINNT_WIN10                  0x0A00
-VERSIONHELPERAPI
-IsWindows10OrGreater()
-{
-    return IsWindowsVersionOrGreater(HIBYTE(_WIN32_WINNT_WIN10), LOBYTE(_WIN32_WINNT_WIN10), 0);
-}
-#endif
 
 LRESULT DesktopWindow::Init(LPCREATESTRUCT pcs)
 {
@@ -344,20 +329,14 @@ LRESULT DesktopWindow::Init(LPCREATESTRUCT pcs)
         if (SUCCEEDED(hr)) {
             g_Globals._hwndShellView = hWndView;
 
-            /* init context menu object before SetShellWindow() for Windows 7,8,8.1 */
-            if (!IsWindows10OrGreater() && IsWindows7OrGreater()) {
-                IContextMenu *pcm = NULL;
-                LOG(TEXT("init context menu object"));
-                hr = _pShellView->GetItemObject(SVGIO_BACKGROUND, IID_IContextMenu, (LPVOID *)&pcm);
-                if (SUCCEEDED(hr)) {
-                    pcm->Release();
-                    LOG(TEXT("inited context menu object"));
-                }
-            }
-            hr = _pShellView->QueryInterface(IID_IFolderView2, (void**)&_pFolderView);
             int iconSize = JCFG2_DEF("JS_DESKTOP", "iconsize", 0).ToInt();
-            if (_pFolderView && iconSize > 0) {
-                _pFolderView->SetViewModeAndIconSize(FVM_ICON, iconSize);
+            if (iconSize > 0) {
+                IFolderView2 *pFolderView = NULL;
+                hr = _pShellView->QueryInterface(IID_IFolderView2, (void**)&pFolderView);
+                if (SUCCEEDED(hr)) {
+                    pFolderView->SetViewModeAndIconSize(FVM_ICON, iconSize);
+                    pFolderView->Release();
+                }
             }
             // subclass shellview window
             _pDesktopShellView = new DesktopShellView(hWndView, _pShellView);
@@ -403,7 +382,7 @@ LRESULT DesktopWindow::Init(LPCREATESTRUCT pcs)
                                         SHCNE_CREATE | SHCNE_MKDIR, WM_SHNOTIFY, 1, &ps);
 
     // create the explorer bar
-    if (JCFG_TB(2, "notaskbar").ToBool() == FALSE && JCFG_TB(2, "visible").ToBool() == TRUE) {
+    if (JCFG_TB(2, "notaskbar").ToBool() == FALSE) {
         _desktopBar = DesktopBar::Create();
         g_Globals._hwndDesktopBar = _desktopBar;
     } else {
@@ -428,9 +407,6 @@ void DesktopWindow::RegisterHotkeys(BOOL unreg)
     if (g_Globals._hwndDesktopBar == (HWND)0) {
         AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_DESKTOP, MOD_WIN, 'D');
     }
-    AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_WIN_S, MOD_WIN, 'S');
-    AUTOREGISTERHOTKEY(unreg, _hwnd, IDHK_WIN_F, MOD_WIN, 'F');
-
     ///@todo register all common hotkeys
 }
 
@@ -438,7 +414,7 @@ void DesktopWindow::ProcessHotKey(int id_hotkey)
 {
     switch (id_hotkey) {
     case IDHK_EXPLORER:
-        explorer_open_frame(SW_SHOWNORMAL, NULL, EXPLORER_OPEN_HOTKEY);
+        explorer_open_frame(SW_SHOWNORMAL);
         break;
 
     case IDHK_RUN:
@@ -452,44 +428,7 @@ void DesktopWindow::ProcessHotKey(int id_hotkey)
     case IDHK_DESKTOP:
          g_Globals._desktop.ToggleMinimize();
         break;
-
-    case IDHK_WIN_S: {
-        if (g_Globals._lua) {
-            string_t hotkey = TEXT("WIN+S");
-            string_t dmy = TEXT("");
-            g_Globals._lua->call("Shell:_onHotKey", hotkey, dmy);
-        }
-        break;
-    }
-    case IDHK_WIN_F: {
-        if (g_Globals._lua) {
-            string_t hotkey = TEXT("WIN+F");
-            string_t dmy = TEXT("");
-            g_Globals._lua->call("Shell:_onHotKey", hotkey, dmy);
-        }
-        break;
-    }
     //@todo implement all common hotkeys
-    }
-}
-
-void DesktopWindow::ProcessUserCommand(WPARAM wparam, LPARAM lparam)
-{
-    switch (wparam) {
-    case WM_DESKTOP_REFRESH:
-        _pShellView->Refresh();
-        break;
-    case WM_DESKTOP_SETICONSIZE: {
-        DesktopCommand dtcmd(_pShellView, _pFolderView);
-        dtcmd.SetIconSize((int)lparam);
-        break;
-    }
-    case WM_DESKTOP_UNSETFOLDERFLAGS:
-    case WM_DESKTOP_SETFOLDERFLAGS: {
-        DesktopCommand dtcmd(_pShellView, _pFolderView);
-        dtcmd.SetFolderFlags((DWORD)lparam, int(wparam) - WM_DESKTOP_UNSETFOLDERFLAGS);
-        break;
-    }
     }
 }
 
@@ -699,10 +638,6 @@ LRESULT DesktopWindow::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
         NotificationReceipt(wparam, lparam);
         goto def;
     }
-    case WM_USERCOMMAND: {
-        ProcessUserCommand(wparam, lparam);
-        break;
-    }
 default: def:
         return super::WndProc(nmsg, wparam, lparam);
     }
@@ -901,8 +836,6 @@ DesktopShellView::StretchWallpaper()
     return _hbmWallp;
 }
 
-static BOOL UpdateWallpaper();
-
 LRESULT DesktopShellView::LoadWallpaper(BOOL fInitial)
 {
     EnterCriticalSection(&wpcs);
@@ -918,11 +851,7 @@ LRESULT DesktopShellView::LoadWallpaper(BOOL fInitial)
         SetRect(&_rcWp, 0, 0, 0, 0);
         SetRect(&_rcBitmapWp, 0, 0, 0, 0);
 
-        String wallpaper_path = JCFG2_DEF("JS_DESKTOP", "wallpaper", TEXT("")).ToString();
-        if (wallpaper_path == TEXT("")) {
-            UpdateWallpaper();
-            wallpaper_path = JCFG2_DEF("JS_DESKTOP", "wallpaper", TEXT("")).ToString();
-        }
+        String wallpaper_path = JCFG2("JS_DESKTOP", "wallpaper").ToString();
         _fStyleWallp = JCFG2("JS_DESKTOP", "wallpaperstyle").ToInt();
         ExpandEnvironmentStrings(wallpaper_path, _szBMPName, MAX_PATH);
         int x, y;
@@ -1045,7 +974,7 @@ LRESULT DesktopShellView::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
     }
     case WM_DISPLAYCHANGE: {
         LoadWallpaper(FALSE);
-        if (JCFG_TB(2, "notaskbar").ToBool() == TRUE || JCFG_TB(2, "visible").ToBool() == FALSE) {
+        if (JCFG_TB(2, "notaskbar").ToBool() == TRUE) {
             NotifySetWorkArea();
         }
         return super::WndProc(nmsg, wparam, lparam);

@@ -30,7 +30,6 @@
 
 #include "../resource.h"
 
-// #include "../DUI/Helper.h"
 #include "desktopbar.h"
 #include "taskbar.h"
 #include "startmenu.h"
@@ -38,13 +37,15 @@
 #include "quicklaunch.h"
 
 #include "../dialogs/settings.h"
-#include "../customization/startbutton.h"
 
 
 DesktopBar::DesktopBar(HWND hwnd)
     :  super(hwnd),
-    _traySndVolIcon(hwnd, ID_TRAY_VOLUME),
-    _trayNetworkIcon(hwnd, ID_TRAY_NETWORK)
+#ifdef __REACTOS__
+       _trayIcon(hwnd, ID_TRAY_VOLUME)
+#else
+       WM_TASKBARCREATED(RegisterWindowMessage(WINMSG_TASKBARCREATED))
+#endif
 {
     SetWindowIcon(hwnd, IDI_WINXSHELL);
 
@@ -114,37 +115,19 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
     // create start button
     string_t start_str(JCFG2("JS_STARTMENU", "text").ToString());
     WindowCanvas canvas(_hwnd);
-    FontSelection font(canvas, g_Globals._hDefaultFont);
+    FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
     RECT rect = {0, 0};
     DrawText(canvas, start_str.c_str(), -1, &rect, DT_SINGLELINE | DT_CALCRECT);
 
     _deskbar_pos_y = DESKTOPBAR_TOP;
-    int start_btn_width = DESKTOPBARBAR_HEIGHT + 8; //DPI_SX((TASKBAR_ICON_SIZE + rect.right + (TASKBAR_ICON_SIZE / 4)));
+    int start_btn_width = TASKBAR_ICON_SIZE + DPI_SX(rect.right) + (TASKBAR_ICON_SIZE / 4);
 
-    string_t start_icon = JCFG2_DEF("JS_STARTMENU", "start_icon", TEXT("custom")).ToString();
-    int start_btn_padding = JCFG2_DEF("JS_STARTMENU", "start_padding", 0).ToInt();
-    start_btn_width = JCFG2_DEF("JS_STARTMENU", "start_width", start_btn_width).ToInt();
-    _taskbar_pos = start_btn_width + DPI_SX(start_btn_padding) + 1;
-
-    {
-        string_t def_value = TEXT("");
-        string_t start_command = TEXT("");
-
-        memset(_startAction, 0, sizeof(_startAction));
-        if (start_icon.compare(TEXT("empty")) == 0) {
-            def_value = TEXT("none");
-        }
-        start_command = JCFG2_DEF("JS_STARTMENU", "start_command", def_value).ToString();
-        if (start_command == TEXT("")) {
-            if (def_value == TEXT("none")) {
-                strcpy(_startAction, "none");
-            }
-        } else if (start_command.compare(TEXT("none")) == 0) {
-            strcpy(_startAction, "none");
-        } else {
-            strcpy(_startAction, (w2s(start_command)).c_str());
-        }
+    int start_btn_padding = 0;
+    BOOL isEmptyStartIcon = JCFG2_DEF("JS_STARTMENU", "start_icon", TEXT("")).ToString().compare(TEXT("empty")) == 0;
+    if (isEmptyStartIcon) {
+        start_btn_padding = JCFG2_DEF("JS_STARTMENU", "start_padding", 0).ToInt();
     }
+    _taskbar_pos = start_btn_width + DPI_SX(start_btn_padding) + 1;
     // create "Start" button
     static WNDCLASS wc;
     GetClassInfo(NULL, TEXT("BUTTON"), &wc);
@@ -152,46 +135,17 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
     wc.hInstance = NULL;
     RegisterClass(&wc);
     HWND hwndStart = SWButton(_hwnd, start_str.c_str(), 0, 0, start_btn_width, DESKTOPBARBAR_HEIGHT, IDC_START, WS_VISIBLE | WS_CHILD | BS_OWNERDRAW);
-    SetWindowFont(hwndStart, g_Globals._hDefaultFont, FALSE);
+    SetWindowFont(hwndStart, GetStockFont(DEFAULT_GUI_FONT), FALSE);
 
     UINT idStartIcon = IDI_STARTMENU_B;
-    string_t sThemeStyle = TASKBAR_THEMESTYLE();
-    if (start_icon.compare(TEXT("empty")) == 0) {
+    if (isEmptyStartIcon) {
         idStartIcon = IDI_EMPTY;
-    } else if (start_icon.compare(TEXT("custom")) == 0) {
-        idStartIcon = IDI_SM_CUSTOM_1;
-    } else if (start_icon.compare(TEXT("files")) == 0) {
-        idStartIcon = 0;
     } else {
-        if (sThemeStyle.compare(TEXT("dark")) == 0) {
+        if (JCFG2("JS_TASKBAR", "theme").ToString().compare(TEXT("dark")) == 0) {
             idStartIcon = IDI_STARTMENU_W;
         }
     }
-
-    HICON starticon_normal = NULL, starticon_pushed = NULL;
-    if (idStartIcon == 0) {
-        // load Resources\*.ico
-        const TCHAR *wkPath = NULL;
-        wkPath = JVAR("JVAR_MODULEPATH").ToString().c_str();
-#ifdef _DEBUG
-        wkPath = TEXT(".");
-#endif // _DEBUG
-
-        String sPath = FmtString(TEXT("%s\\Resources\\%s\\Start_Normal.ico"), wkPath, sThemeStyle.c_str());
-        starticon_normal = (HICON)LoadImage(NULL, sPath.c_str(), IMAGE_ICON, TASKBAR_ICON_SIZE, TASKBAR_ICON_SIZE,
-            LR_DEFAULTCOLOR | LR_CREATEDIBSECTION | LR_LOADFROMFILE);
-
-        sPath = FmtString(TEXT("%s\\Resources\\%s\\Start_Pushed.ico"), wkPath, sThemeStyle.c_str());
-        starticon_pushed = (HICON)LoadImage(NULL, sPath.c_str(), IMAGE_ICON, TASKBAR_ICON_SIZE, TASKBAR_ICON_SIZE,
-            LR_DEFAULTCOLOR | LR_CREATEDIBSECTION | LR_LOADFROMFILE);
-    }
-    COLORREF clrSWButtonPushed = JValueToColor(JCFG2_DEF("JS_STARTMENU", "start_pushed_bkcolor", (int)RGB(51, 53, 55)));
-    HBRUSH hbrSWButtonPushed = CreateSolidBrush(clrSWButtonPushed);
-    if (idStartIcon != 0) {
-        new StartButton(hwndStart, idStartIcon, TASKBAR_BRUSH(), hbrSWButtonPushed, TASKBAR_TEXTCOLOR(), true);
-    } else {
-        new StartButton(hwndStart, starticon_normal, starticon_pushed, TASKBAR_BRUSH(), hbrSWButtonPushed, TASKBAR_TEXTCOLOR(), true);
-    }
+    new StartButton(hwndStart, idStartIcon, TASKBAR_TEXTCOLOR(), true);
 
     /* Save the handle to the window, needed for push-state handling */
     _hwndStartButton = hwndStart;
@@ -212,14 +166,11 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
 
     //LoadSSO(); /* load in main() by SSOThread */
 
-    if (JCFG2_DEF("JS_QUICKLAUNCH", "visible", true).ToBool()) {
-        _hwndQuickLaunch = QuickLaunchBar::Create(_hwnd);
-        _iQuickLaunchPadding = JCFG2_DEF("JS_QUICKLAUNCH", "padding", 4).ToInt();
-    }
+    _hwndQuickLaunch = QuickLaunchBar::Create(_hwnd);
 
     SetTimer(_hwnd, 0, 1000, NULL);
 
-    if (_hwndQuickLaunch && JCFG_TB(2, "userebar").ToBool() == TRUE) {
+    if (JCFG_TB(2, "userebar").ToBool() == TRUE) {
         JCFG_QL_SET(2, "maxiconsinrow") = 0;
         // create rebar window to manage task and quick launch bar
         _hwndrebar = CreateWindowEx(WS_EX_TOOLWINDOW, REBARCLASSNAME, NULL,
@@ -280,16 +231,8 @@ LRESULT DesktopBar::Init(LPCREATESTRUCT pcs)
 }
 
 
-StartButton::StartButton(HWND hwnd, UINT nid, HBRUSH hbrush, HBRUSH hbrush2,
-    COLORREF textcolor, bool flat)
-    : PictureButton2(hwnd, SizeIcon(nid, TASKBAR_ICON_SIZE),
-        SizeIcon(nid + 1, TASKBAR_ICON_SIZE), hbrush, hbrush2, textcolor, flat)
-{
-}
-
-StartButton::StartButton(HWND hwnd, HICON hIcon, HICON hIcon2, HBRUSH hbrush, HBRUSH hbrush2,
-    COLORREF textcolor, bool flat)
-    : PictureButton2(hwnd, hIcon, hIcon2, hbrush, hbrush2, textcolor, flat)
+StartButton::StartButton(HWND hwnd, UINT nid, COLORREF textcolor, bool flat)
+    :  PictureButton(hwnd, SizeIcon(nid, TASKBAR_ICON_SIZE), TASKBAR_BRUSH(), textcolor, flat)
 {
 }
 
@@ -369,7 +312,7 @@ void DesktopBar::ProcessHotKey(int id_hotkey)
     switch (id_hotkey) {
     case IDHK_DESKTOP: {
         if (_startMenuRoot && _startMenuRoot->IsStartMenuVisible()) {
-            ShowOrHideStartMenu(_startAction);
+            ShowOrHideStartMenu();
         } else {
             g_Globals._desktop.ToggleMinimize();
         }
@@ -377,15 +320,15 @@ void DesktopBar::ProcessHotKey(int id_hotkey)
     }
 
     case IDHK_STARTMENU:
-        ShowOrHideStartMenu(_startAction);
+        ShowOrHideStartMenu();
         break;
     }
 }
 
 //is not PECMD TEXT window
 #define DEF_IGNORE_WINDOWS TEXT(";[PECMD;#32770]")
-//is not BrightnessMaskLayerWindow, InstallShield, PangolinScreenBrightness ...
-#define DEF_IGNORE_WINDOW_CLASSES TEXT(";wxsBrightnessMaskLayerWindow;InstallShield_Win;FadeLensScrClass")
+//is not InstallShield...
+#define DEF_IGNORE_WINDOW_CLASSES TEXT(";InstallShield_Win")
 
 static BOOL IsIgnoredWindow(HWND hwnd)
 {
@@ -468,41 +411,9 @@ static void HideForFullScreenWindow(HWND hwnd)
     }
 }
 
-static void OnTraySndVol(HWND hwnd, UINT id)
-{
-    if (hwnd) KillTimer(hwnd, id); // finish one-click timer
-    //launch volume control in rightbottom(x:4096, y:4096)
-    launch_file(hwnd, TEXT("SndVol.exe"), SW_SHOWNORMAL, TEXT("-m 268439552"));
-}
-
-static void OnTrayNetwork(HWND hwnd, UINT id)
-{
-    if (hwnd) KillTimer(hwnd, id);
-    LPCTSTR selfexe = JVAR("JVAR_MODULEFILENAME").ToString().c_str();
-    launch_file(hwnd, selfexe, SW_SHOWNORMAL, _T("-ui -jcfg UI_WIFI\\main.jcfg"));
-}
-
-static void NotifySetWorkArea(HWND hwnd) {
-    WindowRect rect(hwnd);
-    RECT work_area = { 0, 0, GetSystemMetrics(SM_CXSCREEN), rect.top };
-    RECT rt = { 0 };
-    SystemParametersInfo(SPI_GETWORKAREA, 0, &rt, 0);
-    // reset the WORKAREA
-    _log_(FmtString(TEXT("WORKAREA CHANGED NOTIFYTION: %d, %d, %d, %d"), rt.left, rt.top, rt.right, rt.bottom));
-    if (memcmp(&rt, &work_area, sizeof(RECT)) != 0) {
-        SystemParametersInfo(SPI_SETWORKAREA, 0, &work_area, 0);
-        PostMessage(HWND_BROADCAST, WM_SETTINGCHANGE, SPI_SETWORKAREA, 0);
-        SendMessage(g_Globals._hwndShellView, WM_SETTINGCHANGE, SPI_SETWORKAREA, 0);
-    }
-}
-
 LRESULT DesktopBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 {
-    if (g_Globals._isDebug) {
-        if (nmsg != WM_SETCURSOR && nmsg != WM_TIMER && nmsg != PM_RESIZE_CHILDREN && nmsg != WM_ENTERIDLE &&
-            nmsg != WM_COPYDATA && nmsg != PM_RESIZE_CHILDREN)
-            LOG(FmtString(TEXT("NMSG - 0x%x"), nmsg));
-    }
+    //if (nmsg != WM_TIMER) LOG(FmtString(TEXT("NMSG - %d"), nmsg));
     switch (nmsg) {
     case WM_NCHITTEST: {
 #ifndef TASKBAR_AT_TOP
@@ -538,7 +449,7 @@ LRESULT DesktopBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
             else
                 return 0;           // disable any other resizing
         } else if (wparam == SC_TASKLIST)
-            ShowOrHideStartMenu(_startAction);
+            ShowOrHideStartMenu();
         goto def;
 
     case WM_SIZE:
@@ -592,13 +503,13 @@ LRESULT DesktopBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 
     case WM_TIMER:
         if (wparam == 0) {
+            SendMessage(_hwndQuickLaunch, PM_RELOAD_BUTTONS, 0, 0);
             if (JCFG2_DEF("JS_TASKBAR", "hideforfullscreenwindow", true).ToBool() != FALSE) {
                 HideForFullScreenWindow(_hwnd);
             }
         } else if (wparam == ID_TRAY_VOLUME) {
-            OnTraySndVol(_hwnd, (UINT)wparam);
-        } else if (wparam == ID_TRAY_NETWORK) {
-            OnTrayNetwork(_hwnd, (UINT)wparam);
+            KillTimer(_hwnd, wparam);
+            launch_file(_hwnd, TEXT("sndvol32.exe"), SW_SHOWNORMAL, TEXT("-t"));    // launch volume control in small mode
         }
         break;
 
@@ -610,19 +521,10 @@ LRESULT DesktopBar::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
         if (_hwndrebar) {
             SendMessage(_hwndrebar, WM_SYSCOLORCHANGE, 0, 0);
         }
-        if (_hwndQuickLaunch) SendMessage(_hwndQuickLaunch, WM_SYSCOLORCHANGE, 0, 0);
+        SendMessage(_hwndQuickLaunch, WM_SYSCOLORCHANGE, 0, 0);
         SendMessage(_hwndTaskBar, WM_SYSCOLORCHANGE, 0, 0);
         break;
-    case WM_SETTINGCHANGE: {
-        if (wparam == SPI_SETWORKAREA) {
-            NotifySetWorkArea(_hwnd);
-        }
-        break;
-    }
-    case WM_DISPLAYCHANGE: {
-        NotifySetWorkArea(_hwnd);
-        //fallthough
-    }
+
 default: def:
         return super::WndProc(nmsg, wparam, lparam);
     }
@@ -668,10 +570,7 @@ static int CommandHook(HWND hwnd, const TCHAR *act)
 void DesktopBar::Resize(int cx, int cy)
 {
     ///@todo general children resizing algorithm
-    int quicklaunch_width = 0;
-    if (_hwndQuickLaunch) {
-        quicklaunch_width = (int)SendMessage(_hwndQuickLaunch, PM_GET_WIDTH, 0, 0);
-    }
+    int quicklaunch_width = (int)SendMessage(_hwndQuickLaunch, PM_GET_WIDTH, 0, 0);
     int notifyarea_width = (int)SendMessage(_hwndNotify, PM_GET_WIDTH, 0, 0);
     //_log_(FmtString("Resize - %d,%d\r\n", cx, cy));
     HDWP hdwp = BeginDeferWindowPos(3);
@@ -679,7 +578,6 @@ void DesktopBar::Resize(int cx, int cy)
     if (_hwndrebar)
         DeferWindowPos(hdwp, _hwndrebar, 0, _taskbar_pos, 1, cx - _taskbar_pos - (notifyarea_width + 1), cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
     else {
-        if (quicklaunch_width > 0) quicklaunch_width += _iQuickLaunchPadding;
         if (_hwndQuickLaunch)
             DeferWindowPos(hdwp, _hwndQuickLaunch, 0, _taskbar_pos, 1, quicklaunch_width, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
 
@@ -688,7 +586,7 @@ void DesktopBar::Resize(int cx, int cy)
     }
 
     if (_hwndNotify)
-        DeferWindowPos(hdwp, _hwndNotify, 0, cx - notifyarea_width, 0, notifyarea_width, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+        DeferWindowPos(hdwp, _hwndNotify, 0, cx - (notifyarea_width + 3), 1, notifyarea_width, cy - 2, SWP_NOZORDER | SWP_NOACTIVATE);
 
     EndDeferWindowPos(hdwp);
 
@@ -703,80 +601,33 @@ void DesktopBar::Resize(int cx, int cy)
     }
 }
 
-/*
-
-#include <Shldisp.h>
-
-CoInitialize(NULL);
-//Create an instance of the shell class
-IShellDispatch *pShellDisp = NULL;
-CoCreateInstance(CLSID_Shell, NULL, CLSCTX_SERVER, IID_IDispatch, (LPVOID *)&pShellDisp);
-pShellDisp->FileRun();
-pShellDisp->ToggleDesktop();
-pShellDisp->Release();
-=============================================
-CShellDispatch::WindowsSecurity:1389h
-
-CShellDispatch::UpgradeWindowsBottom:1A6h ,2
-CShellDispatch::UpgradeWindowsTop:1A6h,3
-
-CShellDispatch::RefreshMenu:0A220h
-CShellDispatch::FindComputer:0A086h
-CShellDispatch::FindFiles:0A085h
-
-CShellDispatch::CascadeWindows:193h
-CShellDispatch::TileVertically:194h
-CShellDispatch::TileHorizontally:195h
-CShellDispatch::Suspend:199h
-CShellDispatch::SetTime:198h
-CShellDispatch::EjectPC:19Ah
-CShellDispatch::WindowSwitcher:19Bh
-CShellDispatch::TrayProperties:19Dh
-CShellDispatch::MinimizeAll: 19Fh
-CShellDispatch::UndoMinimizeALL:1A0h
-CShellDispatch::ShutdownWindows:1FAh
-*/
-#define IDC_FILERUN        0x191
-#define IDC_TOGGLEDESKTOP  0x197
-
-extern void send_wxs_protocol_url(PWSTR pszName);
-
 int DesktopBar::Command(int id, int code)
 {
-    if (id == IDC_TOGGLEDESKTOP) id = ID_MINIMIZE_ALL;
+    static int isStartButtonHooked = -1;
     switch (id) {
-    case IDC_FILERUN:
-        _startMenuRoot->Command(IDC_LAUNCH, 0);
-        break;
     case IDC_START: {
-        ShowOrHideStartMenu(_startAction);
+        if (isStartButtonHooked == -1) {
+            String def_value = TEXT("");
+            BOOL isEmptyStartIcon = JCFG2_DEF("JS_STARTMENU", "start_icon", TEXT("")).ToString().compare(TEXT("empty")) == 0;
+            if (isEmptyStartIcon) {
+                def_value = TEXT("none");
+            }
+            isStartButtonHooked = 0;
+            if (JCFG2_DEF("JS_STARTMENU", "start_command", def_value).ToString().compare(TEXT("none")) == 0) {
+                isStartButtonHooked = 1;
+            }
+        }
+        if (!isStartButtonHooked) ShowOrHideStartMenu();
         break;
     }
     case ID_ABOUT_EXPLORER:
         explorer_about(g_Globals._hwndDesktop);
         break;
 
-    case ID_DESKTOPBAR_SETTINGS: {
-        if (!g_Globals._isWinPE && g_Globals._winvers[0] >= 10) {
-            TCHAR sysPathBuff[MAX_PATH] = { 0 };
-            GetWindowsDirectory(sysPathBuff, MAX_PATH);
-            String dllPath = sysPathBuff;
-#ifdef _WIN64
-            dllPath.append(_T("\\System32\\ieframe.dll"));
-#else
-            dllPath.append(_T("\\SysNative\\ieframe.dll"));
-#endif
-            if (PathFileExists(dllPath)) {
-                launch_file(g_Globals._hwndDesktop, TEXT("ms-settings:taskbar"));
-            } else {
-                send_wxs_protocol_url(L"ms-settings:taskbar");
-            }
-        } else {
-            send_wxs_protocol_url(L"ms-settings:taskbar");
-            //ExplorerPropertySheet(g_Globals._hwndDesktop);
-        }
+    case ID_DESKTOPBAR_SETTINGS:
+        ExplorerPropertySheet(g_Globals._hwndDesktop);
         break;
-    }
+
     case ID_MINIMIZE_ALL:
         g_Globals._desktop.ToggleMinimize();
         break;
@@ -793,13 +644,16 @@ int DesktopBar::Command(int id, int code)
         DestroyWindow(g_Globals._hwndDesktop);
         break;
     }
+
+#ifdef __REACTOS__
     case ID_TRAY_VOLUME:
-        OnTraySndVol(NULL, 0);
+        launch_file(_hwnd, TEXT("sndvol32.exe"), SW_SHOWNORMAL);    // launch volume control application
         break;
 
     case ID_VOLUME_PROPERTIES:
         launch_cpanel(_hwnd, TEXT("mmsys.cpl"));
         break;
+#endif
 
     default:
         if (_hwndQuickLaunch)
@@ -812,17 +666,8 @@ int DesktopBar::Command(int id, int code)
 }
 
 
-void DesktopBar::ShowOrHideStartMenu(const char *startAction)
+void DesktopBar::ShowOrHideStartMenu()
 {
-    if (startAction[0] != '\0') {
-        if (stricmp(startAction, "none") == 0) return;
-
-        if (g_Globals._lua) {
-            g_Globals._lua->call(startAction);
-            return;
-        }
-    }
-
     if (_startMenuRoot) {
         // set the Button, if not set
         if (!Button_GetState(_hwndStartButton))
@@ -1006,34 +851,23 @@ void DesktopBar::ControlResize(WPARAM wparam, LPARAM lparam)
 }
 
 
+#ifdef __REACTOS__
+
 void DesktopBar::AddTrayIcons()
 {
-    HICON icon = NULL;
-    if (JCFG2_DEF("JS_TRAYNOTIFY", "soundicon", false).ToBool() != FALSE) {
-        icon = g_Globals._icon_cache.get_icon(ICID_TRAY_SND_NONE).get_hicon();
-        _traySndVolIcon.Add(icon, ResString(IDS_VOLUME));
-    }
-    if (JCFG2_DEF("JS_TRAYNOTIFY", "networkicon", false).ToBool() != FALSE) {
-        icon = g_Globals._icon_cache.get_icon(ICID_TRAY_NET_WIRED_LAN).get_hicon();
-        _trayNetworkIcon.Add(icon, ResString(IDS_NETWORK));
-    }
+    _trayIcon.Add(SmallIcon(IDI_SPEAKER), ResString(IDS_VOLUME));
 }
 
 void DesktopBar::TrayClick(UINT id, int btn)
 {
     switch (id) {
     case ID_TRAY_VOLUME:
-        if (btn == TRAYBUTTON_LEFT) {
+        if (btn == TRAYBUTTON_LEFT)
             SetTimer(_hwnd, ID_TRAY_VOLUME, 500, NULL); // wait a bit to correctly handle double clicks
-        } else {
+        else {
             PopupMenu menu(IDM_VOLUME);
             SetMenuDefaultItem(menu, 0, MF_BYPOSITION);
             menu.TrackPopupMenuAtPos(_hwnd, GetMessagePos());
-        }
-        break;
-    case ID_TRAY_NETWORK:
-        if (btn == TRAYBUTTON_LEFT) {
-            SetTimer(_hwnd, ID_TRAY_NETWORK, 500, NULL); // wait a bit to correctly handle double clicks
         }
         break;
     }
@@ -1043,11 +877,10 @@ void DesktopBar::TrayDblClick(UINT id, int btn)
 {
     switch (id) {
     case ID_TRAY_VOLUME:
-        OnTraySndVol(_hwnd, id);
-        break;
-    case ID_TRAY_NETWORK:
-        OnTrayNetwork(_hwnd, id);
+        KillTimer(_hwnd, ID_TRAY_VOLUME);   // finish one-click timer
+        launch_file(_hwnd, TEXT("sndvol32.exe"), SW_SHOWNORMAL);    // launch volume control application
         break;
     }
 }
 
+#endif

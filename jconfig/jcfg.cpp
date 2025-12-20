@@ -3,7 +3,6 @@
 #include <fstream>
 #include <sstream>
 #include <windows.h>
-#include <Shlwapi.h>
 #include "../vendor/json.h"
 #include "jcfg.h"
 
@@ -19,31 +18,23 @@ Object  g_JVARMap;
 Object  g_JCfg;
 
 #define DEF_TASKBARHEIGHT 40
-int g_JCfg_taskbar_iconsize = 24;
-int g_JCfg_taskbar_startmenu_iconsize = 24;
+int g_JCfg_taskbar_iconsize = 32;
+int g_JCfg_taskbar_startmenu_iconsize = 32;
 int g_JCfg_DPI_SX = 96;
 int g_JCfg_DPI_SY = 96;
 HBRUSH g_JCfg_taskbar_bkbrush = NULL;
-COLORREF g_JCfg_taskbar_textcolor = 0;
-string_t g_JCfg_taskbar_themestyle = TEXT("dark");
 
 //default jcfg data
 const wstring def_jcfg = L"{\"JS_SYSTEMINFO\":{\"langid\":\"0\"},"
                          L"\"JS_VERBMENUNAME\":{\"2052\":{\"refresh\":\"Refresh(&E)\",\"rename\":\"Rename(&M)\"}},"
                          L"\"JS_FILEEXPLORER\":{\"3rd_filename\":\"\"},"
-                         L"\"JS_THEMES\":{"
-                         L"\"default\":{\"taskbar\":{\"bkcolor\":[0,0,0],\"task_line_color\":[238,238,238],\"textcolor\":\"0xffffff\"}},"
-                         L"\"blue\":{\"taskbar\":{\"bkcolor\":[0,120,215],\"task_line_color\":[176,176,176],\"textcolor\":\"0xffffff\"}},"
-                         L"\"dark\":{\"taskbar\":{\"bkcolor\":[0,0,0],\"task_line_color\":[238,238,238],\"textcolor\":\"0xffffff\"}},"
-                         L"\"light\":{\"taskbar\":{\"style\":\"light\",\"bkcolor\":[238,238,238],\"task_line_color\":[0,120,215],\"textcolor\":\"0x000000\"}}"
-                         L"},"
                          L"\"JS_DESKTOP\":{"
                          L"\"bkcolor\":[0,0,0],\"wallpaperstyle\":0,"
-                         L"\"wallpaper\":\"\","
+                         L"\"wallpaper\":\"##{JVAR_MODULEPATH}\\\\wallpaper.bmp\","
 //                         L"\"cascademenu\":{\"WinXNew\":\"Directory\\Background\\shell\\WinXNew\"},"
                          L"\"dummy\":0"
                          L"},"
-                         L"\"JS_TASKBAR\":{\"notaskbar\":false,\"visible\":true,\"theme\":\"dark\",\"bkcolor\":[0,0,0],\"bkcolor2\":[0,122,204],\"textcolor\":\"0xffffff\","
+                         L"\"JS_TASKBAR\":{\"notaskbar\":false,\"theme\":\"dark\",\"bkcolor\":[0,0,0],\"bkcolor2\":[0,122,204],\"textcolor\":\"0xffffff\","
                          L"\"userebar\":false,\"rebarlock\":false,\"padding-top\":0,"
                          L"\"smallicon\":false,\"height\":40,\"icon_size\":32,\"*x600\":{\"height\":32,\"icon_size\":16}},"
                          L"\"JS_STARTMENU\":{\"text\":\"\"},"
@@ -183,8 +174,6 @@ static void
 JCfg_init() {
     /* init taskbar background brush */
     g_JCfg_taskbar_bkbrush = CreateSolidBrush(TASKBAR_BKCOLOR());
-    g_JCfg_taskbar_textcolor = TASKBAR_GETTEXTCOLOR();
-    g_JCfg_taskbar_themestyle = TASKBAR_GETTHEMESTYLE();
     JCfg_GetDesktopBarUseSmallIcon();
 
     HDC hdcScreen = GetDC(NULL);
@@ -196,41 +185,35 @@ JCfg_init() {
 }
 
 Object
-Load_JsonCfg(string_t filename)
+Load_JCfg(string_t filename)
 {
     string istr = ReadTextFile(filename);
+    string_t defstr = TEXT("");
     string_t cstr = TEXT("");
     const char *pstr = istr.c_str();
 
-    Object jcfg;
+    StringCodeChange((LPCCH)def_jcfg.c_str(), CP_UNICODE, defstr, CP_ACP);
+    Object def_config = Deserialize(defstr).ToObject();
+    Object jcfg = def_config;
 
     if (strlen(pstr) > 3) {
         if ((unsigned char)pstr[0] == (unsigned char)0xEF &&
             (unsigned char)pstr[1] == (unsigned char)0xBB &&
              (unsigned char)pstr[2] == (unsigned char)0xBF) {
-            pstr += 3;
+            StringCodeChange((LPCCH)pstr + 3, CP_UTF8, cstr, CP_ACP);
+        } else {
+             StringCodeChange((LPCCH)pstr, CP_UTF8, cstr, CP_ACP);
         }
-        StringCodeChange((LPCCH)pstr, CP_UTF8, cstr, CP_ACP);
         jcfg = Deserialize(cstr).ToObject();
         Update_KeyName(&jcfg);
+        Merge_JCfg(&jcfg, &def_config, JCFG_MERGEFLAG_NONE);
     }
-    return jcfg;
-}
-
-
-Object
-Load_JCfg(string_t filename)
-{
-    string_t defstr = TEXT("");
-    StringCodeChange((LPCCH)def_jcfg.c_str(), CP_UNICODE, defstr, CP_ACP);
-    Object def_config = Deserialize(defstr).ToObject();
-    Object jcfg = Load_JsonCfg(filename);
-    Merge_JCfg(&jcfg, &def_config, JCFG_MERGEFLAG_NONE);
+    Object test = jcfg[TEXT("JS_DESKTOP")].ToObject();
     g_JCfg = jcfg;
+
     JCfg_init();
     return jcfg;
 }
-
 
 inline void
 string_replace(string_t &s1, const string_t &s2, const string_t &s3)
@@ -252,7 +235,6 @@ ExpendJString(Value *v)
     if (val[0] != TEXT('#')) return;
     val = val.substr(1);
     for (Object::ValueMap::iterator it = g_JVARMap.begin(); it != g_JVARMap.end(); ++it) {
-        if ((it->second).GetType() != StringVal) continue;
         string_t exp = TEXT("#{") + it->first + TEXT("}");
         if (val.find(TEXT("#{")) != string_t::npos) {
             string_replace(val, exp, it->second.ToString());
@@ -364,31 +346,4 @@ JCfg_GetDesktopBarUseSmallIcon()
 
     }
     return usesmallicon;
-}
-
-int
-JCfg_GetDesktopBarHeightWithDPI()
-{
-    return DESKTOPBARBAR_HEIGHT;
-}
-
-bool
-JCfg_TaskThumbnailEnabled()
-{
-    bool thumbnail = JCFG2_DEF("JS_TASKBAR", "thumbnail", true).ToBool();
-
-    if (thumbnail) {
-        TCHAR sysPathBuff[MAX_PATH] = { 0 };
-        GetWindowsDirectory(sysPathBuff, MAX_PATH);
-        string_t dwmPath = sysPathBuff;
-#ifdef _WIN64
-        dwmPath.append(_T("\\System32\\dwm.exe"));
-#else
-        dwmPath.append(_T("\\SysNative\\dwm.exe"));
-#endif
-        if (!PathFileExists(dwmPath.c_str())) {
-            thumbnail = false;
-        }
-    }
-    return thumbnail;
 }
