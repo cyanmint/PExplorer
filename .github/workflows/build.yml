@@ -1,0 +1,110 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        platform: [Win32, x64]
+        configuration: [Debug, Release]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+    
+    - name: Extract Lua dependencies
+      shell: pwsh
+      run: |
+        cd vendor/lua
+        if (Test-Path "vsbuild/7za") { Remove-Item -Recurse -Force "vsbuild/7za" }
+        & vsbuild/unzip.exe vsbuild/bin.zip -d vsbuild/
+    
+    - name: Extract and prepare Lua source
+      shell: pwsh
+      run: |
+        cd vendor/lua
+        if (-Not (Test-Path "lua")) {
+          # Extract lua tar.gz
+          & vsbuild/7za/x64/7za.exe x lua-5.4.7.tar.gz
+          & vsbuild/7za/x64/7za.exe x lua-5.4.7.tar
+          Remove-Item lua-5.4.7.tar
+          Rename-Item lua-5.4.7 lua
+          
+          # Copy wmain.c
+          Copy-Item vsbuild/wmain.c lua/src/
+          
+          # Create include and lib directories
+          if (-Not (Test-Path "include")) { New-Item -ItemType Directory -Path "include" }
+          if (-Not (Test-Path "lib")) { New-Item -ItemType Directory -Path "lib" }
+          
+          # Move header files
+          Move-Item lua/src/lua.h* include/ -Force
+          Move-Item lua/src/*lib.h include/ -Force
+          Move-Item lua/src/luaconf.h include/ -Force
+        }
+    
+    - name: Extract and prepare lua-cjson
+      shell: pwsh
+      run: |
+        cd vendor/lua
+        if (-Not (Test-Path "lua-cjson")) {
+          & vsbuild/7za/x64/7za.exe x lua-cjson-2.1.0.zip
+          Rename-Item lua-cjson-2.1.0 lua-cjson
+          Copy-Item vsbuild/patch/lua-cjson/dtoa.c lua-cjson/dtoa.c -Force
+        }
+    
+    - name: Build Lua libraries
+      run: |
+        cd vendor/lua/vsbuild
+        msbuild lua.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m /v:minimal
+    
+    - name: Copy Lua libraries
+      shell: pwsh
+      run: |
+        cd vendor/lua
+        $config = "${{ matrix.configuration }}"
+        $platform = "${{ matrix.platform }}"
+        
+        if ($platform -eq "x64") {
+          if ($config -eq "Debug") {
+            Copy-Item vsbuild/x64/Debug/lua.lib lib/lua_d_x64.lib
+            Copy-Item vsbuild/x64/Debug/lua-cjson.lib lib/lua-cjson_d_x64.lib
+          } else {
+            Copy-Item vsbuild/x64/Release/lua.lib lib/lua_x64.lib
+            Copy-Item vsbuild/x64/Release/lua-cjson.lib lib/lua-cjson_x64.lib
+          }
+        } else {
+          if ($config -eq "Debug") {
+            Copy-Item vsbuild/Debug/lua.lib lib/lua_d.lib
+            Copy-Item vsbuild/Debug/lua-cjson.lib lib/lua-cjson_d.lib
+          } else {
+            Copy-Item vsbuild/Release/lua.lib lib/lua.lib
+            Copy-Item vsbuild/Release/lua-cjson.lib lib/lua-cjson.lib
+          }
+        }
+    
+    - name: Restore NuGet packages
+      run: nuget restore WinXShell_VS2022.sln
+    
+    - name: Build solution
+      run: msbuild WinXShell_VS2022.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m /v:minimal
+    
+    - name: Upload artifacts
+      if: matrix.configuration == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: WinXShell-${{ matrix.platform }}
+        path: |
+          ${{ matrix.platform }}/${{ matrix.configuration }}/*.exe
+          ${{ matrix.platform }}/${{ matrix.configuration }}/*.dll
