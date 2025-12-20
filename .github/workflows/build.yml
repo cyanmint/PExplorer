@@ -1,0 +1,86 @@
+name: Build WinXShell
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        configuration: [Release, Debug]
+        platform: [Win32, x64]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v2
+    
+    - name: Build Lua dependencies
+      shell: pwsh
+      run: |
+        cd vendor/lua
+        if (-not (Test-Path include)) { New-Item -ItemType Directory -Path include }
+        if (-not (Test-Path lib)) { New-Item -ItemType Directory -Path lib }
+        
+        # Extract Lua if not already done
+        if (-not (Test-Path lua)) {
+          Write-Host "Extracting Lua..."
+          tar -xzf lua-5.4.7.tar.gz
+          Rename-Item lua-5.4.7 lua
+          Copy-Item vsbuild/wmain.c lua/src/
+          Move-Item lua/src/lua.h* include/
+          Move-Item lua/src/*lib.h include/
+          Move-Item lua/src/luaconf.h include/
+        }
+        
+        # Extract lua-cjson if not already done
+        if (-not (Test-Path lua-cjson)) {
+          Write-Host "Extracting lua-cjson..."
+          Expand-Archive -Path lua-cjson-2.1.0.zip -DestinationPath .
+          Rename-Item lua-cjson-2.1.0 lua-cjson
+          Copy-Item -Force vsbuild/patch/lua-cjson/dtoa.c lua-cjson/dtoa.c
+        }
+        
+        # Build Lua
+        cd vsbuild
+        msbuild lua.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+        
+        # Copy libraries
+        if ("${{ matrix.configuration }}" -eq "Debug") {
+          if ("${{ matrix.platform }}" -eq "x64") {
+            Copy-Item x64/Debug/lua.lib ../lib/lua_d_x64.lib -Force
+            Copy-Item x64/Debug/lua-cjson.lib ../lib/lua-cjson_d_x64.lib -Force
+          } else {
+            Copy-Item Debug/lua.lib ../lib/lua_d.lib -Force
+            Copy-Item Debug/lua-cjson.lib ../lib/lua-cjson_d.lib -Force
+          }
+        } else {
+          if ("${{ matrix.platform }}" -eq "x64") {
+            Copy-Item x64/Release/lua.lib ../lib/lua_x64.lib -Force
+            Copy-Item x64/Release/lua-cjson.lib ../lib/lua-cjson_x64.lib -Force
+          } else {
+            Copy-Item Release/lua.lib ../lib/lua.lib -Force
+            Copy-Item Release/lua-cjson.lib ../lib/lua-cjson.lib -Force
+          }
+        }
+    
+    - name: Restore NuGet packages
+      run: nuget restore WinXShell_VS2022.sln
+    
+    - name: Build
+      run: msbuild WinXShell_VS2022.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m
+    
+    - name: Upload artifacts
+      if: matrix.configuration == 'Release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: WinXShell-${{ matrix.platform }}
+        path: |
+          ${{ matrix.platform }}/Release/*.exe
+          ${{ matrix.platform }}/Release/*.dll
