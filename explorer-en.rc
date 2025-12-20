@@ -13,7 +13,7 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// 英语(美国) resources
+// English (United States) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
@@ -59,8 +59,8 @@ BEGIN
     END
     POPUP "&Help"
     BEGIN
-        MENUITEM "WinXShell &FAQ...",            ID_EXPLORER_FAQ
-        MENUITEM "&About WinXShell...",          ID_ABOUT_EXPLORER
+        MENUITEM "WinXShell &FAQ...",           ID_EXPLORER_FAQ
+        MENUITEM "&About WinXShell...",         ID_ABOUT_EXPLORER
         MENUITEM "About &OS...",                ID_ABOUT_WINDOWS
     END
 END
@@ -118,8 +118,8 @@ BEGIN
     END
     POPUP "&Help"
     BEGIN
-        MENUITEM "WinXShell &FAQ...",            ID_EXPLORER_FAQ
-        MENUITEM "&About WinXShell...",          ID_ABOUT_EXPLORER
+        MENUITEM "WinXShell &FAQ...",           ID_EXPLORER_FAQ
+        MENUITEM "&About WinXShell...",         ID_ABOUT_EXPLORER
         MENUITEM "About &OS...",                ID_ABOUT_WINDOWS
     END
 END
@@ -243,8 +243,8 @@ CAPTION "About WinXShell"
 FONT 8, "MS Shell Dlg", 0, 0, 0x1
 BEGIN
     LTEXT           "WinXShell",IDC_PE_EXPLORER,100,15,100,12
-    LTEXT           "V2.0 RC4",IDC_VERSION_TXT,100,30,100,12
-    LTEXT           "(c) 2015-2017 Slore",IDC_STATIC,100,45,100,12
+    LTEXT           IDS_VERSION_STR,IDC_VERSION_TXT,100,30,100,12
+    LTEXT           IDS_COPYRIGHT_STR,IDC_COPYRIGHT_TXT,100,45,100,12
     LTEXT           "",IDC_WIN_VERSION,100,60,145,22
     LTEXT           "https://github.com/slorelee/WinXShell",IDC_WWW,10,90,0,12
     CONTROL         "&OK",IDOK,"Button",BS_OWNERDRAW | BS_FLAT | WS_GROUP,200,90,40,12
@@ -325,7 +325,22 @@ END
 // AFX_DIALOG_LAYOUT
 //
 
+IDD_ABOUT_EXPLORER AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
 IDD_DESKBAR_TASKBAR AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+IDD_NOTIFYAREA AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+IDD_SEARCH_PROGRAM AFX_DIALOG_LAYOUT
 BEGIN
     0
 END
@@ -372,7 +387,6 @@ BEGIN
     IDS_HIDE_ICONS          "Hide icons"
     IDS_TERMINATE           "Terminate WinXShell"
     IDS_RESTART             "Restart..."
-    IDS_NAMECOLUMN          "Name"
 END
 
 STRINGTABLE
@@ -398,11 +412,12 @@ END
 
 STRINGTABLE
 BEGIN
+    IDS_NAMECOLUMN          "Name"
     IDS_PATHCOLUMN          "Path"
     IDS_MENUCOLUMN          "Menu path"
 END
 
-#endif    // 英语(美国) resources
+#endif    // English (United States) resources
 /////////////////////////////////////////////////////////////////////////////
 
 

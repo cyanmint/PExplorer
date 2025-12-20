@@ -34,6 +34,12 @@
 
 #include "traynotify.h"
 
+#ifdef USE_DUILIB
+#include "../DUI/UICreator.h"
+#endif
+
+#define Point UtilPoint
+
 #ifdef USE_NOTIFYHOOK
 #include "../notifyhook/notifyhook.h"
 
@@ -65,6 +71,40 @@ bool NotifyHook::ModulePathCopyData(LPARAM lparam, HWND *phwnd, String &path)
         return false;
 }
 #endif //USE_NOTIFYHOOK
+
+
+
+#define DEF_GUID(name, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8) \
+        EXTERN_C const GUID DECLSPEC_SELECTANY name \
+                = { l, w1, w2, { b1, b2,  b3,  b4,  b5,  b6,  b7,  b8 } }
+
+//SYS_TRAYICON_CLOCK           {7820AE72-23E3-4229-82C1-E41CB67D5B9C}
+//SYS_TRAYICON_VOLUME          {7820AE73-23E3-4229-82C1-E41CB67D5B9C}
+//SYS_TRAYICON_NETWORK         {7820AE74-23E3-4229-82C1-E41CB67D5B9C}
+//SYS_TRAYICON_POWER           {7820AE75-23E3-4229-82C1-E41CB67D5B9C}
+//SYS_TRAYICON_ACTIONCENTER    {7820AE76-23E3-4229-82C1-E41CB67D5B9C}
+//SYS_TRAYICON_PLUG            {7820AE78-23E3-4229-82C1-E41CB67D5B9C}
+DEF_GUID(SYS_TRAYICON_CLOCK, 0x7820ae72, 0x23e3, 0x4229, 0x82, 0xc1, 0xe4, 0x1c, 0xb6, 0x7d, 0x5b, 0x9c);
+DEF_GUID(SYS_TRAYICON_VOLUME, 0x7820ae73, 0x23e3, 0x4229, 0x82, 0xc1, 0xe4, 0x1c, 0xb6, 0x7d, 0x5b, 0x9c);
+DEF_GUID(SYS_TRAYICON_NETWORK, 0x7820ae74, 0x23e3, 0x4229, 0x82, 0xc1, 0xe4, 0x1c, 0xb6, 0x7d, 0x5b, 0x9c);
+DEF_GUID(SYS_TRAYICON_POWER, 0x7820ae75, 0x23e3, 0x4229, 0x82, 0xc1, 0xe4, 0x1c, 0xb6, 0x7d, 0x5b, 0x9c);
+DEF_GUID(SYS_TRAYICON_PLUG, 0x7820ae78, 0x23e3, 0x4229, 0x82, 0xc1, 0xe4, 0x1c, 0xb6, 0x7d, 0x5b, 0x9c);
+
+static BOOL isEmptyGUID(const GUID *ptr)
+{
+    if (ptr->Data1 != 0 || ptr->Data2 != 0 || ptr->Data3 != 0) return FALSE;
+    for (int i = 0; i < sizeof(ptr->Data4); i++) {
+        if (ptr->Data4[i] != '\0') return FALSE;
+    }
+    return TRUE;
+}
+
+static int IsSameGUID(const GUID *a, const GUID *b) {
+    if (memcmp(a, b, sizeof(GUID)) == 0) {
+        return 1;
+    }
+    return 0;
+}
 
 const int PF_NOTIFYICONDATAA_V1_SIZE = FIELD_OFFSET(X86_NOTIFYICONDATAA, szTip[64]);
 const int PF_NOTIFYICONDATAW_V1_SIZE = FIELD_OFFSET(X86_NOTIFYICONDATAW, szTip[64]);
@@ -168,6 +208,193 @@ NotifyIconIndex::NotifyIconIndex()
     _uID = 0;
 }
 
+typedef struct _TrayNotifyInfo
+{
+    String strTitle;
+    String strInfo;
+    UINT uTimeout;
+    DWORD dwFlags;
+    HICON hIcon;
+}TrayNotifyInfo;
+
+#ifdef USE_DUILIB
+class CNotifyInfoWindow :
+    public CDUIWindow
+{
+public:
+    TrayNotifyInfo m_Info;
+    int m_n;
+    int m_Height;
+    CNotifyInfoWindow(LPCTSTR pszClassName, LPCTSTR pszUIName, LPCTSTR pszUIEntry = _T("main.xml"));
+protected:
+    void OnPrepare();
+    LRESULT HandleCustomMessage(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL & bHandled);
+    void CloseMe();
+};
+
+CNotifyInfoWindow::CNotifyInfoWindow(LPCTSTR pszClassName,
+    LPCTSTR pszUIName, LPCTSTR pszUIEntry) :
+    CDUIWindow(pszClassName, pszUIName, pszUIEntry)
+{
+    m_Info = {_T(""), _T("") , 0};
+    m_Height = 0;
+    m_n = 0;
+}
+
+#define IDT_TIMEOUT 0
+
+int GetTextHeight(HWND hwnd, int width, LPCTSTR text)
+{
+    HDC hdc = GetDC(hwnd);
+    RECT  rect = {0, 0, 0, 0};
+    rect.right = width;
+    DrawText(hdc, text, -1, &rect, DT_CALCRECT | DT_WORDBREAK | DT_EDITCONTROL);
+    ReleaseDC(hwnd, hdc);
+    return rect.bottom;
+}
+
+void CNotifyInfoWindow::OnPrepare()
+{
+    CControlUI *pIcon = m_PaintManager.FindControl(_T("$icon"));
+    CControlUI *pTitle = m_PaintManager.FindControl(_T("$title"));
+    CControlUI *pInfo = m_PaintManager.FindControl(_T("$info"));
+    TCHAR *pIconName = _T("info.png");
+    if (m_Info.dwFlags == NIIF_NONE) {
+        if (pIcon) pIcon->SetVisible(false);
+        pIcon = NULL; 
+    } else if (m_Info.dwFlags & NIIF_INFO) {
+        pIconName = _T("info.png");
+    } else if (m_Info.dwFlags & NIIF_WARNING) {
+        pIconName = _T("warn.png");
+    } else if (m_Info.dwFlags & NIIF_ERROR) {
+        pIconName = _T("error.png");
+    }
+    if (pIcon) pIcon->SetBkImage(pIconName);
+
+    if (pTitle) pTitle->SetText(m_Info.strTitle);
+    if (pInfo) pInfo->SetText(m_Info.strInfo);
+    int textHeight = GetTextHeight(GetHWND(), pInfo->GetWidth(), m_Info.strInfo.c_str());
+    //LOG(FmtString(_T("SetText: %d %d\n") , pInfo->GetHeight(), textHeight));
+    int infoHeight = pInfo->GetHeight();
+    if (textHeight > infoHeight) {
+        RECT rcClient = { 0 };
+        HWND hWndPaint = m_PaintManager.GetPaintWindow();
+        ::GetClientRect(hWndPaint, &rcClient);
+        m_Height = rcClient.bottom - infoHeight + textHeight;
+        ::SetWindowPos(hWndPaint, NULL, rcClient.left, rcClient.top,
+            rcClient.right, m_Height + 32, SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+
+    int dHeight = -100;
+    if (m_Height > 0) {
+        dHeight = -20 - m_Height;
+    }
+    this->RightBottomWindow(-5, -10 + dHeight * (m_n % 3));
+
+    UINT timeout = m_Info.uTimeout;
+    if (timeout <= 0) timeout = 3000;
+    SetTimer(GetHWND(), IDT_TIMEOUT, timeout, NULL);
+    if ((m_Info.dwFlags & NIIF_NOSOUND) == 0) {
+        MessageBeep(MB_ICONASTERISK);
+    }
+}
+
+LRESULT CNotifyInfoWindow::HandleCustomMessage(
+    UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled)
+{
+    switch (uMsg) {
+    case WM_TIMER:
+        if (wParam == IDT_TIMEOUT) {
+            KillTimer(GetHWND(), IDT_TIMEOUT);
+            bHandled = TRUE;
+            CloseMe();
+            return 0;
+        }
+    }
+    bHandled = FALSE;
+    return 0;
+}
+
+void CNotifyInfoWindow::CloseMe()
+{
+    Close();
+    m_Height = -1;
+    /* delete this */;
+}
+#endif
+
+/*
+#include <list>
+#include <mutex>
+
+std::list<CNotifyInfoWindow *> NotifyInfoWindowList;
+std::mutex niw_mutex;
+
+void add_NotifyInfoWindow(CNotifyInfoWindow *ptr)
+{
+    std::lock_guard<std::mutex> guard(niw_mutex);
+    NotifyInfoWindowList.push_back(ptr);
+}
+
+void gc_NotifyInfoWindow()
+{
+    CNotifyInfoWindow *ptr = NULL;
+    std::lock_guard<std::mutex> guard(niw_mutex);
+    list<CNotifyInfoWindow *>::iterator it; list<CNotifyInfoWindow *>::iterator it2;
+    for (it = NotifyInfoWindowList.begin(); it != NotifyInfoWindowList.end();) {
+        ptr = *it;
+        if (ptr->m_Height == -1) {
+            ptr->Close();
+            it = NotifyInfoWindowList.erase(it);
+        } else {
+            ++it;
+        }
+        it2 = NotifyInfoWindowList.end();
+    }
+}
+*/
+
+void CreateNotifyInfoWindow(TrayNotifyInfo *pTrayInfo)
+{
+#ifdef USE_DUILIB
+    static int n = 0;
+
+    DWORD dwStyle = UI_WNDSTYLE_EX_DIALOG;
+    DWORD dwExStyle = WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
+
+    if (pTrayInfo->strTitle.c_str()[0] == _T('\0') && pTrayInfo->strInfo.c_str()[0] == _T('\0')) return;
+
+    String uiname = JCFG2_DEF("JS_NOTIFYAREA", "ui_notifyinfo", _T("UI_NotifyInfo")).ToString();
+    if (uiname == _T("")) return;
+
+    CNotifyInfoWindow *pFrame = new CNotifyInfoWindow(
+        _T("WinXShell-NOTITYINFO-Wnd"), uiname);
+
+    if (pFrame == NULL) return;
+    CPaintManagerUI *pMgr = pFrame->GetPaintManager();
+    if (pMgr) {
+#ifndef _DEBUG
+        String path = JVAR("JVAR_MODULEPATH").ToString() + g_Globals._uifolder + _T("\\") + uiname;
+#else
+        String path = g_Globals._uifolder +_T("\\") + uiname + _T("\\");
+#endif
+        pMgr->SetResourcePath(path.c_str());
+        String entry = pMgr->GetResourcePath() + _T("main.xml");
+        if (!PathFileExists(entry.c_str())) pMgr = NULL;
+    }
+    if (!pMgr) {
+        delete pFrame;
+        return;
+    }
+    pFrame->m_Info = *pTrayInfo;
+    pFrame->m_n = n;
+    pFrame->Create(NULL, uiname, dwStyle, dwExStyle);
+    pFrame->ShowWindow();
+    n++;
+    if (n >= 999) n = 0;
+#endif
+}
+
 NotifyInfo::NotifyInfo()
 {
     _idx = -1;
@@ -175,7 +402,7 @@ NotifyInfo::NotifyInfo()
     _dwState = 0;
     _uCallbackMessage = 0;
     _version = 0;
-
+    _guid = {0};
     _mode = NIM_SHOW;
     _lastChange = GetTickCount();
 }
@@ -239,6 +466,12 @@ bool NotifyInfo::_modify(NID_T *pnid)
     }
 #endif
 
+#ifdef NIF_GUID
+    if (pnid->uFlags & NIF_GUID) {
+        _guid = pnid->guidItem;
+    }
+#endif
+
     // store tool tip text
     if (pnid->uFlags & NIF_TIP) {
         int max_len = 128;
@@ -249,6 +482,18 @@ bool NotifyInfo::_modify(NID_T *pnid)
         if (new_text != _tipText) {
             _tipText = new_text;
             changes = true;
+        }
+    }
+
+    // show info window
+    if (pnid->uFlags & NIF_INFO) {
+        if (pnid->uTimeout > 0) {
+            TrayNotifyInfo TrayInfo;
+            TrayInfo.strTitle.assign(pnid->szInfoTitle, 64);
+            TrayInfo.strInfo.assign(pnid->szInfo, 256);
+            TrayInfo.uTimeout = pnid->uTimeout;
+            TrayInfo.dwFlags = pnid->dwInfoFlags;
+            CreateNotifyInfoWindow(&TrayInfo);
         }
     }
 
@@ -287,6 +532,7 @@ NotifyArea::NotifyArea(HWND hwnd)
 {
     _next_idx = 0;
     _clock_width = 0;
+    _showdesktopbtn_width = 0;
     _last_icon_count = 0;
     _show_hidden = false;
     _hide_inactive = true;
@@ -322,8 +568,11 @@ static bool get_hide_clock_from_registry()
 
 void NotifyArea::read_config()
 {
-    bool clock_visible = true;
+    bool clock_visible = JCFG2_DEF("JS_NOTIFYCLOCK", "visible", true).ToBool();
+    bool showdesktopbtn_visible = (JCFG2_DEF("JS_NOTIFYAREA", "hide_showdesktop_button", false).ToBool() == false);
+    _show_button = !(JCFG2_DEF("JS_NOTIFYAREA", "hide_toggle_button", false).ToBool());
     show_clock(clock_visible);
+    show_showdesktopbtn(showdesktopbtn_visible);
 }
 
 void NotifyArea::write_config()
@@ -347,6 +596,28 @@ void NotifyArea::show_clock(bool flag)
             DestroyWindow(_hwndClock);
             _hwndClock = 0;
             _clock_width = 0;
+        }
+
+        SendMessage(GetParent(_hwnd), PM_RESIZE_CHILDREN, 0, 0);
+    }
+}
+
+void NotifyArea::show_showdesktopbtn(bool flag)
+{
+    bool vis = _hwndShowDesktopBtn != 0;
+
+    if (vis != flag) {
+        if (flag) {
+            // create showdesktop button window
+            _hwndShowDesktopBtn = ShowDesktopButtonWindow::Create(_hwnd);
+
+            if (_hwndShowDesktopBtn) {
+                _showdesktopbtn_width = SHOWDESKTOPBUTTON_WIDTH;
+            }
+        } else {
+            DestroyWindow(_hwndShowDesktopBtn);
+            _hwndShowDesktopBtn = 0;
+            _showdesktopbtn_width = 0;
         }
 
         SendMessage(GetParent(_hwnd), PM_RESIZE_CHILDREN, 0, 0);
@@ -389,15 +660,46 @@ static TCHAR *getmsgstr(UINT msgid)
 }
 #endif
 
+#ifdef _DEBUG
+#ifdef _UNICODE
+#define RPC_TSTR RPC_WSTR
+#else
+#define RPC_TSTR RPC_CSTR
+#endif // _UNICODE
+#endif
+
 static BOOL TrayNotifyMessage(HWND hwnd, const NotifyInfo &entry, LPARAM lparam, POINT pt)
 {
 #ifdef _DEBUG
-    _log_(FmtString(TEXT("TRAYICON MSG = %s"), getmsgstr(lparam)));
+    _log_(FmtString(TEXT("TRAYICON MSG = %s %d"), getmsgstr(lparam), entry._version));
 #endif
-    if (entry._version == NOTIFYICON_VERSION_4)
+    if (entry._version >= NOTIFYICON_VERSION_4 || !isEmptyGUID(&entry._guid))
     {
         POINT messagePt = pt;
         ClientToScreen(hwnd, &messagePt);
+#ifdef _DEBUG
+        RPC_TSTR strGuid = NULL;
+        if (UuidToString(&(entry._guid), &strGuid) == RPC_S_OK) {
+            _log_(FmtString(TEXT("TRAYICON MSG = %s %s"), getmsgstr(lparam), LPTSTR(strGuid)));
+            RpcStringFree(&strGuid);
+        }
+#endif
+
+        if (lparam == WM_LBUTTONUP) {
+            if (IsSameGUID(&entry._guid, &(SYS_TRAYICON_VOLUME))) {
+                if (JCFG2_DEF("JS_NOTIFYAREA", "handle_system_volume", true).ToBool() != FALSE) {
+                    gLuaCall("wxs_ui", TEXT("volume"));
+                    return TRUE;
+                }
+            }
+            else if (IsSameGUID(&entry._guid, &(SYS_TRAYICON_NETWORK))) {
+                if (JCFG2_DEF("JS_NOTIFYAREA", "handle_system_network", true).ToBool() != FALSE) {
+                    gLuaCall("wxs_ui", TEXT("wifi"));
+                    return TRUE;
+                }
+            }
+        }
+
         //if (lparam == NIN_SELECT) lparam = NIN_KEYSELECT;
         WPARAM wparam = MAKEWPARAM(messagePt.x, messagePt.y);
         return PostMessage(entry._hWnd, entry._uCallbackMessage, wparam, MAKELPARAM(lparam, entry._uID)) == S_OK;
@@ -414,7 +716,7 @@ HWND NotifyArea::Create(HWND hwndParent)
 
     return Window::Create(WINDOW_CREATOR(NotifyArea), 0,
                           wcTrayNotify, TITLE_TRAYNOTIFY, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                          clnt.right - (NOTIFYAREA_WIDTH_DEF + 1), 1, NOTIFYAREA_WIDTH_DEF, clnt.bottom - 2, hwndParent);
+                          clnt.right - NOTIFYAREA_WIDTH_DEF, 0, NOTIFYAREA_WIDTH_DEF, clnt.bottom, hwndParent);
 }
 
 LRESULT NotifyArea::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
@@ -440,12 +742,13 @@ LRESULT NotifyArea::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 
     case WM_SIZE: {
         int cx = LOWORD(lparam);
-        SetWindowPos(_hwndClock, 0, cx - _clock_width, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(_hwndShowDesktopBtn, 0, cx - _showdesktopbtn_width, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(_hwndClock, 0, cx - _clock_width - _showdesktopbtn_width, 0, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         break;
     }
 
     case PM_GET_WIDTH: {
-        size_t w = _sorted_icons.size() * NOTIFYICON_DIST + NOTIFYAREA_SPACE + _clock_width;
+        size_t w = _sorted_icons.size() * NOTIFYICON_DIST + NOTIFYAREA_SPACE + _clock_width + _showdesktopbtn_width;
         if (_show_button)
             w += NOTIFYICON_DIST;
         return w;
@@ -629,6 +932,61 @@ void NotifyArea::CancelModes()
         PostMessage(it->_hWnd, WM_CANCELMODE, 0, 0);
 }
 
+#define NIS_IGNORED              0x00080000
+
+extern void resstr_expand(string_t &restr);
+
+static String GetPropByGUID(const GUID *id) {
+    String prop = TEXT("");
+    if (IsSameGUID(id, &(SYS_TRAYICON_VOLUME))) {
+        prop = JCFG2_DEF("JS_NOTIFYAREA", "volume_icon", TEXT("")).ToString();
+    } else if (IsSameGUID(id, &(SYS_TRAYICON_NETWORK))) {
+        prop = JCFG2_DEF("JS_NOTIFYAREA", "network_icon", TEXT("")).ToString();
+    } else if (IsSameGUID(id, &(SYS_TRAYICON_POWER))) {
+        prop = JCFG2_DEF("JS_NOTIFYAREA", "power_icon", TEXT("")).ToString();
+    } else if (IsSameGUID(id, &(SYS_TRAYICON_PLUG))) {
+        prop = JCFG2_DEF("JS_NOTIFYAREA", "plug_icon", TEXT("")).ToString();
+    }
+    return prop;
+}
+
+static String GetPropByTip(String str) {
+    static string_t plug_tip = TEXT("#{@stobject.dll,211}");
+    String prop = TEXT("");
+    if (plug_tip[0] == TEXT('#')) {
+        resstr_expand(plug_tip);
+    }
+#ifdef _DEBUG
+    _log_(FmtString(TEXT("GetPropByTip plug_tip = %s"), plug_tip.c_str()));
+#endif
+    if (lstrcmp(plug_tip.c_str(), str.c_str()) != 0) return prop;
+    prop = JCFG2_DEF("JS_NOTIFYAREA", "plug_icon", TEXT("")).ToString();
+#ifdef _DEBUG
+    _log_(FmtString(TEXT("GetPropByTip plug_icon = %s"), prop.c_str()));
+#endif
+    return prop;
+}
+
+static DWORD GetTrayIconState(NotifyInfo &entry) {
+    String prop = TEXT("");
+    if (!isEmptyGUID(&entry._guid)) {
+        prop = GetPropByGUID(&entry._guid);
+    } else {
+        prop = GetPropByTip(entry._tipText);
+    }
+
+    if (prop == TEXT("ignored")) {
+        entry._dwState |= NIS_IGNORED | NIS_HIDDEN;
+        entry._mode = NIM_HIDE;
+    } else if (prop == TEXT("hidden")) {
+        entry._dwState |= NIS_HIDDEN;
+        entry._mode = NIM_HIDE;
+    } else {
+        return 0;
+    }
+    return entry._dwState;
+}
+
 LRESULT NotifyArea::ProcessTrayNotification(int notify_code, NOTIFYICONDATA *pnid)
 {
     bool changes = false;
@@ -650,6 +1008,12 @@ LRESULT NotifyArea::ProcessTrayNotification(int notify_code, NOTIFYICONDATA *pni
             entry._idx = ++_next_idx;
 
         bool changes = entry.modify((void *)pnid);
+
+        if (NIM_ADD == notify_code) {
+            if (GetTrayIconState(entry) & NIS_IGNORED) {
+                return TRUE;
+            }
+        }
 
 #if NOTIFYICON_VERSION>=3   // as of 21.08.2003 missing in MinGW headers
         if (DetermineHideState(entry) && entry._mode == NIM_HIDE) {
@@ -704,7 +1068,8 @@ void NotifyArea::UpdateIcons()
         const NotifyInfo &entry = it->second;
 
 #ifdef NIF_STATE    // as of 21.08.2003 missing in MinGW headers
-        if (_show_hidden || !(entry._dwState & NIS_HIDDEN))
+        if (!(entry._dwState & NIS_IGNORED) &&
+            (_show_hidden || !(entry._dwState & NIS_HIDDEN)))
 #endif
             _sorted_icons.insert(entry);
     }
@@ -767,7 +1132,7 @@ void NotifyArea::Paint()
         static SizeIcon rightArrowIcon(IDI_NOTIFY_R_B, NOTIFYICON_SIZE);
         if (initIcon == 0) {
             initIcon = 1;
-            if (JCFG2("JS_TASKBAR", "theme").ToString().compare(TEXT("dark")) == 0) {
+            if (TASKBAR_THEMESTYLE().compare(TEXT("dark")) == 0) {
                 leftArrowIcon = SizeIcon(IDI_NOTIFY_L_W, NOTIFYICON_SIZE);
                 rightArrowIcon = SizeIcon(IDI_NOTIFY_R_W, NOTIFYICON_SIZE);
             }
@@ -1340,14 +1705,19 @@ HWND ClockWindow::Create(HWND hwndParent)
     ClientRect clnt(hwndParent);
 
     WindowCanvas canvas(hwndParent);
-    FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
+    FontSelection font(canvas, g_Globals._hDefaultFont);
 
     RECT rect = {0, 0, 0, 0};
     TCHAR buffer[32];
     // Arbitrary high time so that the created clock window is big enough
     SYSTEMTIME st = { 1601, 1, 0, 1, 23, 59, 59, 999 };
-
-    if (!GetTimeFormat(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &st, NULL, buffer, sizeof(buffer) / sizeof(TCHAR)))
+    if (g_Globals._lua) {
+        g_Globals._lua->call("WxsHandler.TrayClockTextFormatter");
+    }
+    String clocktext = g_Globals._varClockTextBuffer;
+    if (clocktext != TEXT("")) {
+        _tcscpy(buffer, clocktext.c_str());
+    } else if (!GetTimeFormat(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &st, NULL, buffer, sizeof(buffer) / sizeof(TCHAR)))
         _tcscpy(buffer, TEXT("00:00\r\n2015/08/15"));
     else {
         _tcscat(buffer, TEXT("\r\n2015/08/15"));
@@ -1359,20 +1729,42 @@ HWND ClockWindow::Create(HWND hwndParent)
 
     return Window::Create(WINDOW_CREATOR(ClockWindow), 0,
                           wcClock, NULL, WS_CHILD | WS_VISIBLE,
-                          clnt.right - clockwindowWidth, clnt.top + 1, clockwindowWidth, clnt.bottom - 2, hwndParent);
+                          clnt.right - clockwindowWidth, clnt.top, clockwindowWidth, clnt.bottom, hwndParent);
+}
+
+#define CLOCKAREA_CLICK_TIMER 1001
+
+static void ClockArea_OnClick(HWND hwnd, int isDbClick)
+{
+    if (hwnd) KillTimer(hwnd, CLOCKAREA_CLICK_TIMER);
+    if (isDbClick) {
+        CommandHook(hwnd, TEXT("clockarea_dbclick"), TEXT("JS_DAEMON"));
+    } else {
+        CommandHook(hwnd, TEXT("clockarea_click"), TEXT("JS_DAEMON"));
+    }
 }
 
 LRESULT ClockWindow::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
 {
+    static int isDbClick = 0;
     switch (nmsg) {
     case WM_PAINT:
         Paint();
         break;
 
-    case WM_LBUTTONDBLCLK:
-        launch_cpanel(_hwnd, TEXT("timedate.cpl"));
+    case WM_LBUTTONUP:
+        //launch_cpanel(_hwnd, TEXT("timedate.cpl"));
+        //KillTimer(_hwnd, CLOCKAREA_CLICK_TIMER);
+        SetTimer(_hwnd, CLOCKAREA_CLICK_TIMER, 300, NULL);
+        isDbClick++;
         break;
-
+    case  WM_TIMER:
+        if (wparam == CLOCKAREA_CLICK_TIMER) {
+            ClockArea_OnClick(_hwnd, (isDbClick>1) ? 1 : 0);
+            isDbClick = 0;
+            return S_OK;
+        }
+        /* fallthough */
     default:
         return super::WndProc(nmsg, wparam, lparam);
     }
@@ -1411,16 +1803,23 @@ bool ClockWindow::FormatTime()
     TCHAR time_buff[16];
     TCHAR date_buffer[64];
 
-    if (!(GetTimeFormat(LOCALE_USER_DEFAULT, TIME_NOSECONDS, NULL, NULL,
-                        time_buff, sizeof(time_buff) / sizeof(TCHAR)))) return false;
+    if (g_Globals._varClockTextBuffer[0] != TEXT('\0')) {
+        if (g_Globals._lua) {
+            g_Globals._lua->call("WxsHandler.TrayClockTextFormatter");
+        }
+        _tcscpy(buffer, g_Globals._varClockTextBuffer);
+    } else {
+        if (!(GetTimeFormat(LOCALE_USER_DEFAULT, TIME_NOSECONDS, NULL, NULL,
+            time_buff, sizeof(time_buff) / sizeof(TCHAR)))) return false;
 
-    _tcscat(buffer, time_buff);
+        _tcscat(buffer, time_buff);
 
-    if (!(GetDateFormat(LOCALE_USER_DEFAULT, DATE_SHORTDATE, NULL, NULL,
-                        date_buffer, sizeof(date_buffer) / sizeof(TCHAR)))) return false;
+        if (!(GetDateFormat(LOCALE_USER_DEFAULT, DATE_SHORTDATE, NULL, NULL,
+            date_buffer, sizeof(date_buffer) / sizeof(TCHAR)))) return false;
 
-    _tcscat(buffer, TEXT("\r\n"));
-    _tcscat(buffer, date_buffer);
+        _tcscat(buffer, TEXT("\r\n"));
+        _tcscat(buffer, date_buffer);
+    }
 
     if (_tcscmp(buffer, _time)) {
         _tcscpy(_time, buffer);
@@ -1439,17 +1838,83 @@ void ClockWindow::Paint()
     FillRect(canvas, &canvas.rcPaint, TASKBAR_BRUSH());
 
     BkMode bkmode(canvas, TRANSPARENT);
-    FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
+    FontSelection font(canvas, g_Globals._hDefaultFont);
     SetTextColor(canvas, CLOCK_TEXT_COLOR());
     if (!inited) {
         inited = true;
         rc = ClientRect(_hwnd);
         RECT rc_text = { 0, 0 };
         DrawText(canvas, _time, -1, &rc_text, DT_CENTER | DT_NOPREFIX | DT_CALCRECT);
-        rc_text.right = DPI_SX(rc_text.right);
-        rc_text.bottom = DPI_SY(rc_text.bottom);
+        //rc_text.right = DPI_SX(rc_text.right);
+        //rc_text.bottom = DPI_SY(rc_text.bottom);
         rc.top += (rc.bottom - rc_text.bottom) / 2;
     }
 
     DrawText(canvas, _time, -1, &rc, DT_CENTER | DT_NOPREFIX);
+}
+
+ShowDesktopButtonWindow::ShowDesktopButtonWindow(HWND hwnd)
+    : super(hwnd)
+{
+}
+
+HWND ShowDesktopButtonWindow::Create(HWND hwndParent)
+{
+    static BtnWindowClass wcShowDesktopBtn(CLASSNAME_SHOWDESKTOPBUTTONWINDOW, CS_VREDRAW | CS_HREDRAW | CS_DBLCLKS | CS_OWNDC | BS_OWNERDRAW);
+    wcShowDesktopBtn.hbrBackground = TASKBAR_BRUSH();
+    wcShowDesktopBtn.hCursor = LoadCursor(NULL, IDC_HAND);
+    ClientRect clnt(hwndParent);
+
+    int windowWidth = SHOWDESKTOPBUTTON_WIDTH;
+
+    return Window::Create(WINDOW_CREATOR(ShowDesktopButtonWindow), 0,
+        wcShowDesktopBtn, NULL, WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+        clnt.right - windowWidth, clnt.top, windowWidth, clnt.bottom, hwndParent);
+}
+
+#define SHOWDESKTOPBUTTON_CLICK_TIMER 1001
+#define IDHK_DESKTOP 2
+
+static void ShowDesktopButton_OnClick(HWND hwnd, int isDbClick)
+{
+    if (hwnd) KillTimer(hwnd, SHOWDESKTOPBUTTON_CLICK_TIMER);
+    if (!isDbClick) {
+        SendMessage(g_Globals._hwndDesktopBar, WM_HOTKEY, IDHK_DESKTOP, 0); // call WIN+D action
+        InvalidateRect(hwnd, NULL, TRUE);
+    }
+}
+
+void ShowDesktopButtonWindow::Paint()
+{
+    static RECT rc;
+    PaintCanvas canvas(_hwnd);
+    FillRect(canvas, &canvas.rcPaint, TASKBAR_BRUSH());
+    rc = canvas.rcPaint;
+    rc.right = 1;
+    FillRect(canvas, &rc, GetSysColorBrush(COLOR_BTNSHADOW));
+}
+
+LRESULT ShowDesktopButtonWindow::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
+{
+    static int isDbClick = 0;
+    switch (nmsg) {
+    case WM_PAINT:
+        Paint();
+        break;
+    case WM_LBUTTONUP:
+        SetTimer(_hwnd, SHOWDESKTOPBUTTON_CLICK_TIMER, 300, NULL);
+        isDbClick++;
+        break;
+    case  WM_TIMER:
+        if (wparam == SHOWDESKTOPBUTTON_CLICK_TIMER) {
+            ShowDesktopButton_OnClick(_hwnd, (isDbClick>1) ? 1 : 0);
+            isDbClick = 0;
+            return S_OK;
+        }
+        /* fallthough */
+    default:
+        return super::WndProc(nmsg, wparam, lparam);
+    }
+
+    return 0;
 }

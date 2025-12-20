@@ -83,9 +83,13 @@ protected:
     WindowHandle _last_foreground_wnd;
     int         _last_btn_width;
     MINIMIZEDMETRICS _mmMetrics_org;
-
+    bool        _thumbnail;
+    static RECT _icon_area;
+    bool        _no_task_title;
+    bool        _task_close_button;
     const UINT WM_SHELLHOOK;
 
+    void InitTaskbarStyle();
     LRESULT Init(LPCREATESTRUCT pcs);
     LRESULT WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam);
     int     Command(int id, int code);
@@ -96,6 +100,7 @@ protected:
 
     static BOOL CALLBACK EnumWndProc(HWND hwnd, LPARAM lparam);
 
+    void    ApplyBackgroundStyle();
     void    Refresh();
     void    ResizeButtons();
 };

@@ -32,12 +32,14 @@ extern "C" {
 
 
 // explorer main routine
-extern int explorer_main(HINSTANCE hinstance, LPTSTR lpCmdLine, int cmdshow);
+extern int explorer_main(HINSTANCE hinstance, LPTSTR lpCmdLine, LPCTSTR lpOption, int cmdshow);
 
 enum ExplorerStartupMode {
     EXPLORER_OPEN_NORMAL = 0,
+    EXPLORER_OPEN_DIRECT,
     EXPLORER_OPEN_DESKTOP,
-    EXPLORER_OPEN_QUICKLAUNCH
+    EXPLORER_OPEN_QUICKLAUNCH,
+    EXPLORER_OPEN_HOTKEY
 };
 
 // display explorer/file manager window

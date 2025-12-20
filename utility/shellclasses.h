@@ -1,3 +1,5 @@
+#pragma once
+
 /*
  * Copyright 2003, 2004, 2005 Martin Fuchs
  *
@@ -1203,4 +1205,4 @@ protected:
 
 
 extern HRESULT ShellFolderContextMenu(IShellFolder *shell_folder, HWND hwndParent, int cidl,
-                                      LPCITEMIDLIST *ppidl, int x, int y, CtxMenuInterfaces &cm_ifs, IShellView *psv = NULL);
+                                      LPCITEMIDLIST *ppidl, int x, int y, CtxMenuInterfaces &cm_ifs, IShellView *psv = NULL, LPCTSTR verb = NULL);

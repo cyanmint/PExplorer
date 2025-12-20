@@ -6,6 +6,7 @@
 #include "../resource.h" /* IDI_EXPLORER */
 #include "fileexplorer.h"
 
+#include "../utility/DiskHelper.h"
 #pragma comment(lib, "Dwmapi.lib")
 
 #define CLSID_MyComputerName     TEXT("::{20D04FE0-3AEA-1069-A2D8-08002B30309D}")
@@ -20,6 +21,8 @@
 
 DEF_GUID(CLSID_UsersFiles, 0x59031a47, 0x3f72, 0x44a7, 0x89, 0xc5, 0x55, 0x95, 0xfe, 0x6b, 0x30, 0xee);//59031A47-3F72-44A7-89c5-5595fe6b30ee
 DEF_GUID(CLSID_MyDocuments, 0x450d8fba, 0xad25, 0x11d0, 0x98, 0xa8, 0x08, 0x95, 0x00, 0x36, 0x1b, 0x03);//450d8fba-ad25-11d0-98a8-0800361b1103
+
+DEFINE_GUID(BHID_SFUIObject, 0x3981e225, 0xf559, 0x11d3, 0x8e, 0x3a, 0x00, 0xc0, 0x4f, 0x68, 0x37, 0xd5);
 
 //#include "../utility/window.h"
 
@@ -48,6 +51,8 @@ BOOL IsWow64()
 #endif
 */
 
+static HWND hFileDialog_FileNameCtrl = NULL;
+
 HHOOK FileExplorerWindow::HookHandle = NULL;
 FileExplorerWindow::FileExplorerWindow(HWND hwnd)
     : super(hwnd)
@@ -73,6 +78,9 @@ void FileExplorerWindow::ReleaseHook()
 
 #define WM_OPENDIALOG (WM_USER+1)
 #define WM_CUSTOMDIALOG (WM_USER+2)
+#define WM_OPENOPTION (WM_USER+10)
+
+UINT FileExplorerWindow::uOption = 0;
 
 HWND FileExplorerWindow::Create()
 {
@@ -121,7 +129,7 @@ LRESULT WINAPI MinButtonHooker(int code, WPARAM wParam, LPARAM lParam)
     return CallNextHookEx(NULL, code, wParam, lParam);
 }
 
-HWND FileExplorerWindow::Create(HWND hwnd, String path)
+HWND FileExplorerWindow::Create(HWND hwnd, String path, UINT option = 0)
 {
     HWND hFrame = Create();
     BOOL dwmEnabled = FALSE;
@@ -152,6 +160,10 @@ HWND FileExplorerWindow::Create(HWND hwnd, String path)
             (HOOKPROC)MinButtonHooker, (HINSTANCE)NULL, (DWORD)GetCurrentThreadId());
     }
 
+    if (option != 0) {
+        PostMessage(hFrame, WM_OPENOPTION, (WPARAM)0, (LPARAM)option);
+    }
+
     String *dirpath = new String(path);
     PostMessage(hFrame, WM_OPENDIALOG, (WPARAM)hFrame, (LPARAM)dirpath);
     return hFrame;
@@ -166,6 +178,9 @@ LRESULT FileExplorerWindow::WndProc(UINT nmsg, WPARAM wparam, LPARAM lparam)
         OpenDialog((HWND)wparam, *path);
         delete path;
         PostMessage((HWND)wparam, WM_CLOSE, 0, 0);
+        return S_OK;
+    } else if (nmsg == WM_OPENOPTION) {
+        FileExplorerWindow::uOption = (UINT)lparam;
         return S_OK;
     } else if (nmsg == WM_SETTINGCHANGE) {
         HandleEnvChangeBroadcast(lparam);
@@ -190,18 +205,37 @@ int FileExplorerWindow::OpenDialog(HWND hwnd, String path)
     if (FAILED(hr))
         return 0;
 
+    // SelectOption
+    String dir = path;
+    TCHAR *pSelectFile = NULL;
+    BOOL select_item_enabled = JCFG2_DEF("JS_FILEEXPLORER", "select_item_enabled", true).ToBool();
+    if (!select_item_enabled) {
+        pSelectFile = NULL;
+    } else if (FileExplorerWindow::uOption == 1) {
+        TCHAR szPath[MAX_PATH + 1] = { 0 };
+        ExpandEnvironmentStrings(path, szPath, MAX_PATH);
+        if (!PathIsRoot(szPath) && PathFileExists(szPath)) {
+            pSelectFile = szPath;
+            TCHAR buff[MAX_PATH] = {0};
+            _tcscpy(buff, szPath);
+            PathRemoveFileSpec(buff);
+            dir = buff;
+        }
+        FileExplorerWindow::uOption = 0;
+    }
+
     // Set the dialog's caption text and the available file types.
     // NOTE: Error handling omitted here for clarity.
     //pDlg->SetFileTypes(_countof(aFileTypes), aFileTypes);
-    pDlg->SetTitle(path.c_str());
-    pDlg->SetOptions(FOS_NOVALIDATE | FOS_ALLNONSTORAGEITEMS | FOS_ALLOWMULTISELECT | FOS_NODEREFERENCELINKS);
+    pDlg->SetTitle(dir.c_str());
+    pDlg->SetOptions(FOS_NOVALIDATE | FOS_FILEMUSTEXIST | FOS_ALLNONSTORAGEITEMS | FOS_ALLOWMULTISELECT | FOS_NODEREFERENCELINKS);
 
     IShellItem *psi = NULL;
     //LPITEMIDLIST pidlControlPanel;
     //SHGetSpecialFolderLocation(NULL, CSIDL_CONTROLS, &pidlControlPanel);
     //hr = SHCreateItemFromIDList(pidlControlPanel, IID_PPV_ARGS(&psi));
     //hr = SHCreateItemInKnownFolder(CLSID_ControlPanel, 0, NULL, IID_PPV_ARGS(&psi));
-    hr = SHCreateItemFromParsingName(path.c_str(), NULL, IID_PPV_ARGS(&psi));
+    hr = SHCreateItemFromParsingName(dir.c_str(), NULL, IID_PPV_ARGS(&psi));
     if (SUCCEEDED(hr)) {
         pDlg->SetFolder(psi);
         psi->Release();
@@ -209,7 +243,7 @@ int FileExplorerWindow::OpenDialog(HWND hwnd, String path)
 
     // Create an event handling object, and hook it up to the dialog.
     IFileDialogEvents *pfde = NULL;
-    hr = CFileDialogEventHandler_CreateInstance(IID_PPV_ARGS(&pfde));
+    hr = CFileDialogEventHandler_CreateInstance(IID_PPV_ARGS(&pfde), pSelectFile);
     if (FAILED(hr)) goto end;
     DWORD dwCookie = -1;
     pDlg->Advise(pfde, &dwCookie);
@@ -265,6 +299,7 @@ static int CustomFileDialog(IFileOpenDialog *pfd)
     /* hide filename combox */
     item = GetDlgItem(hwndDialog, 0x47C);
     ShowWindow(item, SW_HIDE);
+    hFileDialog_FileNameCtrl = item;
 
     /* hide filename filter combox */
     item = GetDlgItem(hwndDialog, 0x470);
@@ -286,15 +321,23 @@ static int CustomFileDialog(IFileOpenDialog *pfd)
 }
 
 
-extern std::wstring s2w(const std::string& str, UINT cp = CP_ACP);
-extern std::string w2s(const std::wstring& wstr);
-extern std::string w2s(const wchar_t *wstr);
-
 #ifndef LOGA
-extern void _logA_(LPCSTR txt);
-
 #define LOGA(txt) _logA_(txt)
 #endif
+
+int isRootDrive(LPOLESTR pwsz)
+{
+    size_t len = wcslen(pwsz);
+    if (len == 0) return 0;
+    if (len == 1) {
+        if (pwsz[0] >= L'A' && pwsz[0] <= L'Z') return 1;
+    } else if (len == 2) {
+        if (pwsz[1] == L':' && pwsz[0] >= L'A' && pwsz[0] <= L'Z') return 1;
+    } else {
+        if (pwsz[len - 2] == L':' && pwsz[len - 1] == L'\\') return 1;
+    }
+    return 0;
+}
 
 IFACEMETHODIMP CFileDialogEventHandler::OnFolderChanging(IFileDialog *pDlg, IShellItem *pItem)
 {
@@ -313,7 +356,12 @@ IFACEMETHODIMP CFileDialogEventHandler::OnFolderChanging(IFileDialog *pDlg, IShe
         LOGA(ptr);
         if (strcmp(ptr, "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\::{21EC2020-3AEA-1069-A2DD-08002B30309D}") == 0 ||
             strcmp(ptr, "::{26EE0668-A00A-44D7-9371-BEB064C98683}") == 0) {
-            launch_file(g_Globals._hwndDesktop, TEXT("control.exe"));
+            gLuaCall("wxs_open", TEXT("controlpanel"), TEXT(""));
+        } else {
+            if (isRootDrive(pwsz) && GetDriveEncryptionStatus(pwsz) == Locked) {
+                DoFileVerb(pwsz, TEXT("unlock-bde"));
+                return S_FALSE;
+            }
         }
         CoTaskMemFree(pwsz);
     }
@@ -335,27 +383,95 @@ IFACEMETHODIMP CFileDialogEventHandler::OnFolderChange(IFileDialog *pDlg)
     if (FAILED(hr)) return S_OK;
     pDlg->SetTitle(pwsz);
     CoTaskMemFree(pwsz);
+    SetWindowText(hFileDialog_FileNameCtrl, TEXT(""));
     return S_OK;
+}
+
+static int FileDialogSelectItem(IFileDialog *pDlg, TCHAR *path) {
+    String file = path;
+    if (file != TEXT("")) {
+        IShellView *psv = NULL;
+        HRESULT hr = IUnknown_QueryService(pDlg, SID_SFolderView, IID_PPV_ARGS(&psv));
+        if (SUCCEEDED(hr)) {
+            IShellItem *psi = NULL;
+            hr = SHCreateItemFromParsingName(path, NULL, IID_PPV_ARGS(&psi));
+            if (SUCCEEDED(hr)) {
+                IParentAndItem *ppai = NULL;
+                hr = psi->QueryInterface(&ppai);
+                if (SUCCEEDED(hr)) {
+                    PITEMID_CHILD pidlChild;
+                    hr = ppai->GetParentAndItem(NULL, NULL, &pidlChild);
+                    if (SUCCEEDED(hr)) {
+                        psv->SelectItem(pidlChild, SVSI_SELECT | SVSI_ENSUREVISIBLE | SVSI_DESELECTOTHERS);
+                    }
+                    ppai->Release();
+                }
+                psi->Release();
+            }
+            psv->Release();
+        }
+    }
+    return 0;
+}
+
+IFACEMETHODIMP CFileDialogEventHandler::OnSelectionChange(IFileDialog *pDlg) {
+    if (m_pSelectFile) {
+        FileDialogSelectItem(pDlg, m_pSelectFile);
+        m_pSelectFile = NULL;
+    }
+    return S_OK; 
+}
+
+static int ChangedFolderFromShortcut(IFileDialog *pDlg, IShellItem *pItem)
+{
+    SFGAOF sfgAttribute = 0;
+    pItem->GetAttributes(SFGAO_LINK, &sfgAttribute);
+    if ((sfgAttribute & SFGAO_LINK) == 0) return 0; // not shortcut
+
+    IShellLink *pLink = NULL;
+    HRESULT hr = pItem->BindToHandler(NULL, BHID_SFUIObject, IID_PPV_ARGS(&pLink));
+    if (FAILED(hr)) return 0;
+
+    TCHAR sz[MAX_PATH] = {0};
+    WIN32_FIND_DATA wfd = {0};
+    hr = pLink->GetPath(sz, MAX_PATH, &wfd, SLGP_UNCPRIORITY | SLGP_RAWPATH);
+    pLink->Release();
+    if (FAILED(hr)) return 0;
+    if ((wfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) return 0; // not directory
+
+    IShellItem *psi = NULL;
+    hr = SHCreateItemFromParsingName(sz, NULL, IID_PPV_ARGS(&psi));
+    if (SUCCEEDED(hr)) {
+        pDlg->SetFolder(psi);
+        psi->Release();
+        return 1;
+    }
+    return 0;
 }
 
 IFACEMETHODIMP CFileDialogEventHandler::OnFileOk(IFileDialog *pDlg)
 {
-    TCHAR path[MAX_PATH] = {0};
     IShellItem *pItem = NULL;
     HRESULT hr = pDlg->GetCurrentSelection(&pItem);
+    if (FAILED(hr)) return S_FALSE;
+
+    if (ChangedFolderFromShortcut(pDlg, pItem) == 1) {
+        pItem->Release(); 
+        return S_FALSE;
+    }
+
+    LPOLESTR pwsz = NULL;
+    hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pwsz);
+    pItem->Release();
     if (SUCCEEDED(hr)) {
-        LPOLESTR pwsz = NULL;
-        hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pwsz);
-        if (SUCCEEDED(hr)) {
-            LOG(pwsz);
-            //PathCchRemoveFileSpec
-            _tcscpy(path, pwsz);
-            PathRemoveFileSpec(path);
-            SetCurrentDirectory(path);
-            launch_file(g_Globals._hwndDesktop, pwsz);
-            CoTaskMemFree(pwsz);
-        }
-        pItem->Release();
+        TCHAR path[MAX_PATH] = {0};
+        LOG(pwsz);
+        //PathCchRemoveFileSpec
+        _tcscpy(path, pwsz);
+        PathRemoveFileSpec(path);
+        SetCurrentDirectory(path);
+        launch_file(g_Globals._hwndDesktop, pwsz);
+        CoTaskMemFree(pwsz);
     }
     return S_FALSE;
 }
@@ -365,13 +481,14 @@ IFACEMETHODIMP CFileDialogEventHandler::OnFileOk(IFileDialog *pDlg)
 //
 //   PURPOSE:  CFileDialogEventHandler instance creation helper function.
 //
-HRESULT CFileDialogEventHandler_CreateInstance(REFIID riid, void **ppv)
+HRESULT CFileDialogEventHandler_CreateInstance(REFIID riid, void **ppv, TCHAR *path)
 {
     *ppv = NULL;
     CFileDialogEventHandler* pFileDialogEventHandler =
         new CFileDialogEventHandler();
     HRESULT hr = pFileDialogEventHandler ? S_OK : E_OUTOFMEMORY;
     if (SUCCEEDED(hr)) {
+        pFileDialogEventHandler->m_pSelectFile = path;
         hr = pFileDialogEventHandler->QueryInterface(riid, ppv);
         pFileDialogEventHandler->Release();
     }
@@ -480,10 +597,44 @@ static void Shell32DllHacker()
 }
 */
 
+
+#include <windef.h>
+
+#ifndef _DPI_AWARENESS_CONTEXTS_
+#define _DPI_AWARENESS_CONTEXTS_
+DECLARE_HANDLE(DPI_AWARENESS_CONTEXT);
+
+typedef enum DPI_AWARENESS {
+    DPI_AWARENESS_INVALID = -1,
+    DPI_AWARENESS_UNAWARE = 0,
+    DPI_AWARENESS_SYSTEM_AWARE = 1,
+    DPI_AWARENESS_PER_MONITOR_AWARE = 2
+} DPI_AWARENESS;
+
+#define DPI_AWARENESS_CONTEXT_UNAWARE               ((DPI_AWARENESS_CONTEXT)-1)
+#define DPI_AWARENESS_CONTEXT_SYSTEM_AWARE          ((DPI_AWARENESS_CONTEXT)-2)
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE     ((DPI_AWARENESS_CONTEXT)-3)
+#define DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2  ((DPI_AWARENESS_CONTEXT)-4)
+#define DPI_AWARENESS_CONTEXT_UNAWARE_GDISCALED     ((DPI_AWARENESS_CONTEXT)-5)
+
+#endif // !_DPI_AWARENESS_CONTEXTS_
+
 #ifndef ROSSHELL
 void explorer_show_frame(int cmdShow, LPTSTR lpCmdLine)
 {
+    char envkey[64] = { 0 };
     ExplorerCmd cmd;
+
+    HMODULE hModule = LoadLibraryA("user32.dll");
+    if (hModule) {
+        typedef UINT(*func)(DPI_AWARENESS_CONTEXT);
+        func _SetThreadDpiAwarenessContext = (func)GetProcAddress(hModule, "SetThreadDpiAwarenessContext");
+        if (_SetThreadDpiAwarenessContext) {
+            UINT DpiAwareness = 0x7811;
+            _SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_SYSTEM_AWARE);
+            FreeLibrary(hModule);
+        }
+    }
 
     if (g_Globals._hMainWnd) {
         if (IsIconic(g_Globals._hMainWnd))
@@ -504,10 +655,13 @@ void explorer_show_frame(int cmdShow, LPTSTR lpCmdLine)
 
     if (g_Globals._hwndDesktopBar == (HWND)0) {
         HookGetShellWindow();
+
+        sprintf(envkey, "FileExpRefresh_Handled_%d", GetCurrentProcessId());
+        SetEnvironmentVariableA(envkey, "1");
     }
 
     // create main window
-    FileExplorerWindow::Create(NULL, cmd._path.c_str());
+    FileExplorerWindow::Create(NULL, cmd._path.c_str(), cmd._option);
 }
 #endif
 
@@ -516,38 +670,40 @@ int explorer_open_frame(int cmdShow, LPTSTR lpCmdLine, int mode)
     String explorer_path = JCFG2_DEF("JS_FILEEXPLORER", "3rd_filename", TEXT("")).ToString();
     BOOL seperate_mode = JCFG2_DEF("JS_FILEEXPLORER", "seperate_mode", true).ToBool();
     String explorer_open;
+    String explorer_open_key = TEXT("3rd_open_arguments");
     String explorer_parameters;
+    int rc = 0;
     if (lpCmdLine == NULL) lpCmdLine = TEXT("");
     explorer_parameters = lpCmdLine;
+
+    if (mode == EXPLORER_OPEN_QUICKLAUNCH) {
+        explorer_path = JCFG2_DEF("JS_QUICKLAUNCH", "3rd_filename", explorer_path).ToString();
+    } else if (mode == EXPLORER_OPEN_HOTKEY) {
+        explorer_path = JCFG3_DEF("JS_FILEEXPLORER", "WIN+E", "3rd_filename", explorer_path).ToString();
+    } else if (mode == EXPLORER_OPEN_DIRECT) {
+        explorer_path = TEXT("");
+    }
     if (explorer_path.empty()) {
         if (!g_Globals._desktop_mode || !seperate_mode) {
             explorer_show_frame(cmdShow, lpCmdLine);
             return 1;
         }
-
         explorer_path = JVAR("JVAR_MODULEPATH").ToString() + TEXT("\\") + JVAR("JVAR_MODULENAME").ToString();
-
-        if (mode == EXPLORER_OPEN_NORMAL) {
-            explorer_open = JCFG2_DEF("JS_FILEEXPLORER", "open_arguments", TEXT("%s")).ToString();
-        }
-        else if (mode == EXPLORER_OPEN_QUICKLAUNCH) {
-            explorer_open = JCFG2_DEF("JS_QUICKLAUNCH", "open_arguments", TEXT("")).ToString();
-        }
-        explorer_parameters = FmtString(explorer_open, lpCmdLine);
-        launch_file(g_Globals._hwndDesktop, explorer_path.c_str(), cmdShow, explorer_parameters.c_str());
-        return 1;
+        explorer_open_key = TEXT("open_arguments");
+        rc = 1;
     }
 
     if (mode == EXPLORER_OPEN_NORMAL) {
-        explorer_open = JCFG2_DEF("JS_FILEEXPLORER", "3rd_open_arguments", TEXT("%s")).ToString();
-    }
-    else if (mode == EXPLORER_OPEN_QUICKLAUNCH) {
-        explorer_open = JCFG2_DEF("JS_QUICKLAUNCH", "3rd_open_arguments", TEXT("")).ToString();
+        explorer_open = JCFG2U_DEF("JS_FILEEXPLORER", explorer_open_key, TEXT("%s")).ToString();
+    } else if (mode == EXPLORER_OPEN_QUICKLAUNCH) {
+        explorer_open = JCFG2U_DEF("JS_QUICKLAUNCH", explorer_open_key, TEXT("")).ToString();
+    } else if (mode == EXPLORER_OPEN_HOTKEY) {
+        explorer_open = JCFG3U_DEF("JS_FILEEXPLORER", "WIN+E", explorer_open_key, TEXT("")).ToString();
     }
 
     explorer_parameters = FmtString(explorer_open, lpCmdLine);
     launch_file(g_Globals._hwndDesktop, explorer_path.c_str(), cmdShow, explorer_parameters.c_str());
-    return 0;
+    return rc;
 }
 
 int OpenShellFolders(HWND hwnd, LPIDA pida)

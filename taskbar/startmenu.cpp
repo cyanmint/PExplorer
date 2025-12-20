@@ -70,6 +70,8 @@ StartMenu::StartMenu(HWND hwnd, int icon_size)
     _selected_id = -1;
     _last_mouse_pos = 0;
 #endif
+
+    _name_flags = 0;
 }
 
 StartMenu::StartMenu(HWND hwnd, const StartMenuCreateInfo &create_info, int icon_size)
@@ -99,6 +101,8 @@ StartMenu::StartMenu(HWND hwnd, const StartMenuCreateInfo &create_info, int icon
     _selected_id = -1;
     _last_mouse_pos = 0;
 #endif
+
+    _name_flags = 0;
 }
 
 StartMenu::~StartMenu()
@@ -788,13 +792,16 @@ bool StartMenu::JumpToNextShortcut(TCHAR c)
 #endif // _LIGHT_STARTMENU
 
 
-bool StartMenu::GetButtonRect(int id, PRECT prect) const
+int StartMenu::GetButtonRect(int id, PRECT prect) const
 {
 #ifdef _LIGHT_STARTMENU
     ClientRect clnt(_hwnd);
     const int icon_size = _icon_size;
     RECT rect = {_border_left, _border_top, clnt.right, STARTMENU_LINE_HEIGHT(icon_size)};
 
+    if (_buttons.size() == 0) {
+        return -1;
+    }
     for (SMBtnVector::const_iterator it = _buttons.begin() + _scroll_pos; it != _buttons.end(); ++it) {
         const SMBtnInfo &info = *it;
 
@@ -802,13 +809,13 @@ bool StartMenu::GetButtonRect(int id, PRECT prect) const
 
         if (info._id == id) {
             *prect = rect;
-            return true;
+            return 1;
         }
 
         rect.top = rect.bottom;
     }
 
-    return false;
+    return 0;
 #else
     HWND btn = GetDlgItem(_hwnd, id);
 
@@ -892,7 +899,7 @@ void StartMenu::Paint(PaintCanvas &canvas)
 
     int sep_width = rect.right - rect.left - 4;
 
-    FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
+    FontSelection font(canvas, g_Globals._hDefaultFont);
     BkMode bk_mode(canvas, TRANSPARENT);
 
     for (SMBtnVector::const_iterator it = _buttons.begin() + _scroll_pos; it != _buttons.end(); ++it) {
@@ -956,7 +963,7 @@ void StartMenu::UpdateIcons(/*int idx*/)
 
                     RECT rect;
 
-                    GetButtonRect(btn._id, &rect);
+                    if (GetButtonRect(btn._id, &rect) == -1) break;
 
                     if (rect.bottom > _bottom_max)
                         break;
@@ -1138,7 +1145,16 @@ ShellEntryMap::iterator StartMenu::AddEntry(const ShellFolder folder, Entry *ent
     else
         icon_id = (ICON_ID)/*@@*/ entry->_icon_id;
 
-    return AddEntry(entry->_display_name, icon_id, entry);
+    String title = entry->_display_name;
+    if (_name_flags & NO_EXEEXT_FLAG) {
+        if (title.length() > 4) {
+            String ext = title.substr(title.length() - 4);
+            if (ext == TEXT(".exe")) {
+                title = title.substr(0, title.length() - 4);
+            }
+        }
+    }
+    return AddEntry(title, icon_id, entry);
 }
 
 
@@ -1162,7 +1178,7 @@ void StartMenu::AddButton(LPCTSTR title, ICON_ID icon_id, bool hasSubmenu, int i
     }
 
     WindowCanvas canvas(_hwnd);
-    FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
+    FontSelection font(canvas, g_Globals._hDefaultFont);
 
     // widen window, if it is too small
     int text_width = GetStartMenuBtnTextWidth(canvas, title, _hwnd) + icon_size + 10/*placeholder*/ + 16/*arrow*/;
@@ -1279,7 +1295,10 @@ void StartMenu::CreateSubmenu(int id, const StartMenuFolders &new_folders, LPCTS
     RECT rect;
     int x, y;
 
-    if (GetButtonRect(id, &rect)) {
+    int rc = -1;
+    rc = GetButtonRect(id, &rect);
+    if (rc == -1) return;
+    if (rc == 1) {
         ClientToScreen(_hwnd, &rect);
 
         x = rect.right; // Submenus should overlap their parent a bit.
@@ -1453,7 +1472,7 @@ void StartMenu::ResizeToButtons()
     WindowRect rect(_hwnd);
 
     WindowCanvas canvas(_hwnd);
-    FontSelection font(canvas, GetStockFont(DEFAULT_GUI_FONT));
+    FontSelection font(canvas, g_Globals._hDefaultFont);
 
     const int icon_size = _icon_size;
 
@@ -1703,14 +1722,21 @@ int StartMenuRoot::Command(int id, int code)
 
 LRESULT StartMenuRoot::Init(LPCREATESTRUCT pcs)
 {
-    // add buttons for entries in _entries
-    if (super::Init(pcs))
-        return 1;
+    if (!JCFG2_DEF("JS_STARTMENU", "notopitems", false).ToBool()) {
+        // add buttons for entries in _entries
 
-    AddSeparator();
+        _name_flags = NO_EXEEXT_FLAG; // hide .exe extension
+        if (super::Init(pcs))
+            return 1;
+
+        _name_flags = 0;
+
+        AddSeparator();
+    }
 
     // insert hard coded start entries
-    AddButton(ResString(IDS_PROGRAMS),      ICID_APPS, true, IDC_PROGRAMS);
+    if (!JCFG2_DEF("JS_STARTMENU", "noprograms", false).ToBool())
+        AddButton(ResString(IDS_PROGRAMS),      ICID_APPS, true, IDC_PROGRAMS);
 
     //AddButton(ResString(IDS_DOCUMENTS),     ICID_DOCUMENTS, true, IDC_DOCUMENTS);
 
@@ -1724,6 +1750,16 @@ LRESULT StartMenuRoot::Init(LPCREATESTRUCT pcs)
 
     if (!JCFG2_DEF("JS_STARTMENU", "nobrowse", false).ToBool())
         AddButton(ResString(IDS_BROWSE),        ICID_FOLDER, true, IDC_BROWSE);
+
+    if (!JCFG2_DEF("JS_STARTMENU", "noconnections", false).ToBool()) {
+        TCHAR sysPathBuff[MAX_PATH] = { 0 };
+        GetWindowsDirectory(sysPathBuff, MAX_PATH);
+        String sPath = sysPathBuff;
+        sPath.append(_T("\\System32\\netshell.dll")); // NetSetupApi.dll
+        if (PathFileExists(sPath)) {
+            AddButton(ResString(IDS_CONNECTIONS), ICID_NETCONNS, true, IDC_CONNECTIONS_FOLDER);
+        }
+    }
 
     //if (!g_Globals._SHRestricted || !SHRestricted(REST_NOFIND))
     if (!JCFG2_DEF("JS_STARTMENU", "nofind", true).ToBool())
@@ -1763,8 +1799,9 @@ LRESULT StartMenuRoot::Init(LPCREATESTRUCT pcs)
 void StartMenuRoot::AddEntries()
 {
     super::AddEntries();
-
-    AddButton(ResString(IDS_EXPLORE),   ICID_EXPLORER, false, IDC_EXPLORE);
+    if (!JCFG2_DEF("JS_STARTMENU", "nofileexplorer", true).ToBool()) {
+        AddButton(ResString(IDS_EXPLORE), ICID_EXPLORER, false, IDC_EXPLORE);
+    }
 }
 
 
@@ -1816,9 +1853,14 @@ UINT StartMenuRoot::GetLogoResId()
 
     int clr_bits = GetDeviceCaps(dc, BITSPIXEL);
 
-    if (clr_bits > 8)
-        return IDB_LOGOV;
-    else if (clr_bits > 4)
+    if (clr_bits > 8) {
+        if (g_Globals._lua) {
+            int logo_id = g_Globals._lua->call("StartMenu:SetLogoId", 1);
+            if (logo_id == -1) logo_id = 1;
+            return IDB_LOGOV + logo_id;
+        }
+        return IDB_LOGOV + 1;
+    } else if (clr_bits > 4)
         return IDB_LOGOV256;
     else
         return IDB_LOGOV16;
@@ -1904,11 +1946,19 @@ int StartMenuHandler::Command(int id, int code)
 
     case IDC_LOGOFF:
         CloseStartMenu(id);
-        ShowLogoffDialog(g_Globals._hwndDesktopBar);
+        if (g_Globals._lua) {
+            if (g_Globals._lua->call("Startmenu:Logoff") == 0) break;
+        }
+        if (CommandHook(g_Globals._hwndDesktop, TEXT("logoff")) == 1) break;
+        ShowLogoffDialog(g_Globals._hwndDesktop);
         break;
 
     case IDC_RESTART:
         CloseStartMenu(id);
+        if (g_Globals._lua) {
+            if (g_Globals._lua->call("Startmenu:Reboot") == 0) break;
+        }
+        if (CommandHook(g_Globals._hwndDesktop, TEXT("reboot")) == 1) break;
         ShowRestartDialog(g_Globals._hwndDesktop, EWX_REBOOT);
         /* An alternative way to do restart without shell32 help */
         //launch_file(_hwnd, TEXT("shutdown.exe"), SW_HIDE, TEXT("-r"));
@@ -1916,6 +1966,10 @@ int StartMenuHandler::Command(int id, int code)
 
     case IDC_SHUTDOWN:
         CloseStartMenu(id);
+        if (g_Globals._lua) {
+            if (g_Globals._lua->call("Startmenu:Shutdown") == 0) break;
+        }
+        if (CommandHook(g_Globals._hwndDesktop, TEXT("shutdown")) == 1) break;
         ShowExitWindowsDialog(g_Globals._hwndDesktop);
         break;
 
@@ -1936,6 +1990,9 @@ int StartMenuHandler::Command(int id, int code)
     case IDC_CONTROL_PANEL: {
         CloseStartMenu(id);
 
+        if (g_Globals._lua) {
+            if (g_Globals._lua->call("Startmenu:ControlPanel") == 0) break;
+        }
         if (CommandHook(_hwnd, TEXT("control")) == 1) break;
 
         //explorer_open_frame(SW_SHOWNORMAL, SHELLPATH_CONTROL_PANEL);
@@ -1991,6 +2048,9 @@ int StartMenuHandler::Command(int id, int code)
 #endif
         break;
     }
+    case IDC_CONNECTIONS_FOLDER:
+        CreateSubmenu(id, CSIDL_CONNECTIONS, ResString(IDS_CONNECTIONS));
+        break;
 
 
     // browse menu
@@ -2072,8 +2132,10 @@ int RunDialogThread::Run()
     Static dlgOwner(0, 0, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, 0, 0);
     _hwnd = dlgOwner;
     // Show "Run..." dialog
+    TCHAR home_dir[MAX_PATH] = { 0 };
+    GetEnvironmentVariable(TEXT("USERPROFILE"), home_dir, MAX_PATH);
     if (RunFileDlg) {
-        (*RunFileDlg)(dlgOwner, 0, NULL, NULL, NULL, RFF_CALCDIRECTORY);
+        (*RunFileDlg)(dlgOwner, 0, home_dir, NULL, NULL, RFF_CALCDIRECTORY);
     }
     DestroyWindow(dlgOwner);
     return 0;
@@ -2118,7 +2180,6 @@ void ShowLogoffDialog(HWND hwndOwner)
 {
     static DynamicFct<LOGOFFWINDOWSDIALOG> LogoffWindowsDialog(TEXT("SHELL32"), 54);
     //  static DynamicFct<RESTARTWINDOWSDLG> RestartDialog(TEXT("SHELL32"), 59);
-    if (CommandHook(hwndOwner, TEXT("logoff")) == 1) return;
 
     if (LogoffWindowsDialog)
         (*LogoffWindowsDialog)(0);
@@ -2133,7 +2194,7 @@ void ShowLogoffDialog(HWND hwndOwner)
 void ShowExitWindowsDialog(HWND hwndOwner)
 {
     static DynamicFct<EXITWINDOWSDLG> ExitWindowsDialog(TEXT("SHELL32"), 60);
-    if (CommandHook(hwndOwner, TEXT("shutdown")) == 1) return;
+
     if (ExitWindowsDialog)
         (*ExitWindowsDialog)(hwndOwner);
     else
@@ -2143,7 +2204,7 @@ void ShowExitWindowsDialog(HWND hwndOwner)
 void StartMenuHandler::ShowRestartDialog(HWND hwndOwner, UINT flags)
 {
     static DynamicFct<RESTARTWINDOWSDLG> RestartDlg(TEXT("SHELL32"), 59);
-    if (CommandHook(hwndOwner, TEXT("reboot")) == 1) return;
+
     if (RestartDlg)
         (*RestartDlg)(hwndOwner, (LPWSTR)L"You selected restart.\n\n", flags);
     else
@@ -2164,8 +2225,8 @@ void SettingsMenu::AddEntries()
 
     AddButton(ResString(IDS_ADMIN),             ICID_ADMIN, true, IDC_ADMIN);
 
-    if (!g_Globals._SHRestricted || !SHRestricted(REST_NOCONTROLPANEL))
-        AddButton(ResString(IDS_SETTINGS_MENU), ICID_CONFIG, true, IDC_SETTINGS_MENU);
+    /* if (!g_Globals._SHRestricted || !SHRestricted(REST_NOCONTROLPANEL))
+        AddButton(ResString(IDS_SETTINGS_MENU), ICID_CONFIG, true, IDC_SETTINGS_MENU); */
 
     AddButton(ResString(IDS_DESKTOPBAR_SETTINGS), ICID_DESKSETTING, false, ID_DESKTOPBAR_SETTINGS);
 

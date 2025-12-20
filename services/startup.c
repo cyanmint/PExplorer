@@ -57,6 +57,7 @@
 #include <ctype.h>
 
 #include <tchar.h>
+#include<winreg.h>
 
 /**
  * Performs the rename operations dictated in %SystemRoot%\Wininit.ini.
@@ -394,8 +395,53 @@ struct op_mask {
 
 static const struct op_mask
     SESSION_START   = {FALSE, FALSE, TRUE, TRUE, TRUE, TRUE},
-SETUP           = {FALSE, FALSE, FALSE, TRUE, TRUE, TRUE};
+    SETUP           = {FALSE, FALSE, FALSE, TRUE, TRUE, TRUE};
 #define DEFAULT SESSION_START
+
+static HRESULT (WINAPI *SHCreateSessionKey)(REGSAM samDesired, PHKEY phKey);
+
+static int SessionKeyCreated(TCHAR *key)
+{
+    HKEY hSessionKey, hKey;
+    HRESULT hr;
+
+    TCHAR buff[255];
+    DWORD dwSessionId;
+    ProcessIdToSessionId(GetCurrentProcessId(), &dwSessionId);
+
+    _swprintf(buff, TEXT("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\SessionInfo\\%d"), dwSessionId);
+    if (RegOpenKey(HKEY_CURRENT_USER, buff, &hKey) == ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        hKey = NULL;
+    } else {
+        RegSetValue(HKEY_CURRENT_USER, buff, REG_SZ, TEXT(""), 0);
+    }
+
+    HMODULE hModule = GetModuleHandle(TEXT("SHELL32"));
+    SHCreateSessionKey = (HRESULT(WINAPI *)(REGSAM, PHKEY))GetProcAddress(hModule, (LPCSTR)723);
+
+    hr = SHCreateSessionKey(KEY_WRITE, &hSessionKey);
+    if (SUCCEEDED(hr)) {
+        LONG Error;
+        DWORD dwDisp;
+
+        Error = RegCreateKeyEx(hSessionKey, key, 0, NULL, REG_OPTION_VOLATILE, KEY_WRITE, NULL, &hKey, &dwDisp);
+        RegCloseKey(hSessionKey);
+        if (Error == ERROR_SUCCESS) {
+            RegCloseKey(hKey);
+            if (dwDisp == REG_OPENED_EXISTING_KEY) {
+                /* Startup programs has already been run */
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+int ShellHasBeenRun()
+{
+    return SessionKeyCreated(TEXT("ShellHasBeenRun"));
+}
 
 int startup(int argc, const TCHAR *argv[])
 {
@@ -403,6 +449,10 @@ int startup(int argc, const TCHAR *argv[])
     /* First, set the current directory to SystemRoot */
     TCHAR gen_path[MAX_PATH];
     DWORD res;
+
+    if (SessionKeyCreated(TEXT("StartupHasBeenRun"))) {
+        return 0;
+    }
 
     res = GetWindowsDirectory(gen_path, sizeof(gen_path));
 

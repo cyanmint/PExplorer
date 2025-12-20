@@ -525,9 +525,44 @@ IContextMenu *CtxMenuInterfaces::query_interfaces(IContextMenu *pcm1)
     }
 }
 
+UINT WalkPopupMenu(HMENU hmenu, LPCTSTR verb, IContextMenu *pcm)
+{
+    int mid = 0;
+    MENUITEMINFO mmi = { 0 };
+    mmi.cbSize = sizeof(MENUITEMINFO);
+    mmi.fMask = MIIM_ID | MIIM_SUBMENU;
+    int count = GetMenuItemCount(hmenu);
+    TCHAR verbbuffer[MAX_PATH + 1] = { 0 };
+    TCHAR namebuffer[MAX_PATH + 1] = { 0 };
+    HRESULT hr = S_OK;
+    for (int i = 0; i < count; i++) {
+        if (GetMenuItemInfo(hmenu, i, TRUE, &mmi)) {
+            if (mmi.wID != MAXUINT) {
+                verbbuffer[0] = '\0';
+                if (pcm && mmi.wID != (UINT)mmi.hSubMenu) {
+#ifdef UNICODE
+                    hr = pcm->GetCommandString(mmi.wID, GCS_VERBW | GCS_UNICODE, NULL, (char *)verbbuffer, MAX_PATH);
+#else
+                    hr = pcm->GetCommandString(mmi.wID, GCS_VERB, NULL, (char *)verbbuffer, MAX_PATH);
+#endif
+                }
+                if (hr == S_OK) {
+                    GetMenuString(hmenu, mmi.wID, namebuffer, MAX_PATH, MF_BYCOMMAND);
+                }
+                _logU2A_(FmtString(TEXT("%s%d |%s|%s| %x"), TEXT("  "), mmi.wID, verbbuffer, namebuffer, mmi.hSubMenu).c_str());
+                if (_tcsicmp(verbbuffer, verb) == 0) {
+                    // output all menu info
+                    //return mmi.wID;
+                    if (mid == 0) mid = mmi.wID;
+                }
+            }
+        }
+    }
+    return mid;
+}
 
 HRESULT ShellFolderContextMenu(IShellFolder *shell_folder, HWND hwndParent, int cidl,
-                               LPCITEMIDLIST *apidl, int x, int y, CtxMenuInterfaces &cm_ifs, IShellView *psv)
+                               LPCITEMIDLIST *apidl, int x, int y, CtxMenuInterfaces &cm_ifs, IShellView *psv, LPCTSTR verb)
 {
     IContextMenu *pcm;
 
@@ -540,20 +575,25 @@ HRESULT ShellFolderContextMenu(IShellFolder *shell_folder, HWND hwndParent, int 
         HMENU hmenu = CreatePopupMenu();
 
         if (hmenu) {
-            UINT flags = CMF_NORMAL | CMF_EXPLORE | CMF_EXTENDEDVERBS;
+            UINT flags = CMF_NORMAL | CMF_EXPLORE;
+            if (GetKeyState(VK_SHIFT) < 0 || verb != NULL) flags |= CMF_EXTENDEDVERBS;
             if (!g_Globals._isNT5) flags |= CMF_CANRENAME;
 
             hr = pcm->QueryContextMenu(hmenu, 0, FCIDM_SHVIEWFIRST, FCIDM_SHVIEWLAST, flags);
 
             if (SUCCEEDED(hr)) {
-                UINT idCmd = TrackPopupMenu(hmenu, TPM_LEFTALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, hwndParent, NULL);
-
                 cm_ifs.reset();
-
+                UINT idCmd = 0;
+                if (verb == NULL) {
+                    idCmd = TrackPopupMenu(hmenu, TPM_LEFTALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, hwndParent, NULL);
+                } else {
+                    idCmd = WalkPopupMenu(hmenu, verb, pcm);
+                }
                 if (idCmd) {
                     WCHAR namebuffer[MAX_PATH + 1] = {0};
                     pcm->GetCommandString(idCmd, GCS_VERBW, NULL, (char *)namebuffer, MAX_PATH);
                     //GetMenuString(hmenu, idCmd, namebuffer, MAX_PATH, MF_BYCOMMAND);
+                    _log_(FmtString(TEXT("ShellContextMenu %d %s"), idCmd, namebuffer));
                     if (_wcsicmp(namebuffer, L"rename") == 0) {
                         if (psv) {
                             IFolderView2 *pfv2 = NULL;
@@ -585,5 +625,27 @@ HRESULT ShellFolderContextMenu(IShellFolder *shell_folder, HWND hwndParent, int 
         pcm->Release();
     }
 
+    return hr;
+}
+
+HRESULT DoFileVerb(PCTSTR tzFile, PCTSTR verb)
+{
+    HRESULT hr = S_FALSE;
+    LPITEMIDLIST pidl_abs = SHSimpleIDListFromPath(tzFile);
+    {
+        static DynamicFct<HRESULT(WINAPI *)(LPCITEMIDLIST, REFIID, LPVOID *, LPCITEMIDLIST *)> SHBindToParent(TEXT("SHELL32"), "SHBindToParent");
+
+        if (SHBindToParent) {
+            IShellFolder *parentFolder = NULL;
+            LPCITEMIDLIST pidlLast;
+            // get and use the parent folder to display correct context menu in all cases -> correct "Properties" dialog for directories, ...
+            hr = (*SHBindToParent)(pidl_abs, IID_IShellFolder, (LPVOID *)&parentFolder, &pidlLast);
+            if (SUCCEEDED(hr)) {
+                CtxMenuInterfaces cm_ifs;
+                hr = ShellFolderContextMenu(parentFolder, NULL, 1, &pidlLast, -1, -1, cm_ifs, NULL, verb);
+                parentFolder->Release();
+            }
+        }
+    }
     return hr;
 }
