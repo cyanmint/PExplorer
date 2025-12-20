@@ -36,8 +36,8 @@ jobs:
         cd vendor/lua
         if (-Not (Test-Path "lua")) {
           # Extract lua tar.gz
-          & vsbuild/7za/x64/7za.exe x lua-5.4.7.tar.gz
-          & vsbuild/7za/x64/7za.exe x lua-5.4.7.tar
+          & vsbuild/7za/x64/7z.exe x lua-5.4.7.tar.gz
+          & vsbuild/7za/x64/7z.exe x lua-5.4.7.tar
           Remove-Item lua-5.4.7.tar
           Rename-Item lua-5.4.7 lua
           
@@ -59,7 +59,7 @@ jobs:
       run: |
         cd vendor/lua
         if (-Not (Test-Path "lua-cjson")) {
-          & vsbuild/7za/x64/7za.exe x lua-cjson-2.1.0.zip
+          & vsbuild/7za/x64/7z.exe x lua-cjson-2.1.0.zip
           Rename-Item lua-cjson-2.1.0 lua-cjson
           Copy-Item vsbuild/patch/lua-cjson/dtoa.c lua-cjson/dtoa.c -Force
         }
