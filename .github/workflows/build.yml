@@ -1,10 +1,10 @@
-name: Build
+name: Build WinXShell
 
 on:
   push:
-    branches: [ WinXShell ]
+    branches: [ "**" ]
   pull_request:
-    branches: [ WinXShell ]
+    branches: [ "**" ]
   workflow_dispatch:
 
 jobs:
@@ -23,74 +23,52 @@ jobs:
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
     
-    - name: Extract Lua dependencies
+    - name: Build Lua dependencies
       shell: pwsh
       run: |
         cd vendor/lua
-        if (Test-Path "vsbuild/7za") { Remove-Item -Recurse -Force "vsbuild/7za" }
-        & vsbuild/unzip.exe vsbuild/bin.zip -d vsbuild/
-    
-    - name: Extract and prepare Lua source
-      shell: pwsh
-      run: |
-        cd vendor/lua
-        if (-Not (Test-Path "lua")) {
-          # Extract lua tar.gz
-          & vsbuild/7za/x64/7z.exe x lua-5.4.7.tar.gz
-          & vsbuild/7za/x64/7z.exe x lua-5.4.7.tar
-          Remove-Item lua-5.4.7.tar
-          Rename-Item lua-5.4.7 lua
-          
-          # Copy wmain.c
-          Copy-Item vsbuild/wmain.c lua/src/
-          
-          # Create include and lib directories
-          if (-Not (Test-Path "include")) { New-Item -ItemType Directory -Path "include" }
-          if (-Not (Test-Path "lib")) { New-Item -ItemType Directory -Path "lib" }
-          
-          # Move header files
-          Move-Item lua/src/lua.h* include/ -Force
-          Move-Item lua/src/*lib.h include/ -Force
-          Move-Item lua/src/luaconf.h include/ -Force
-        }
-    
-    - name: Extract and prepare lua-cjson
-      shell: pwsh
-      run: |
-        cd vendor/lua
-        if (-Not (Test-Path "lua-cjson")) {
-          & vsbuild/7za/x64/7z.exe x lua-cjson-2.1.0.zip
-          Rename-Item lua-cjson-2.1.0 lua-cjson
-          Copy-Item vsbuild/patch/lua-cjson/dtoa.c lua-cjson/dtoa.c -Force
-        }
-    
-    - name: Build Lua libraries
-      run: |
-        cd vendor/lua/vsbuild
-        msbuild lua.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }} /m /v:minimal
-    
-    - name: Copy Lua libraries
-      shell: pwsh
-      run: |
-        cd vendor/lua
-        $config = "${{ matrix.configuration }}"
-        $platform = "${{ matrix.platform }}"
+        if (-not (Test-Path include)) { New-Item -ItemType Directory -Path include }
+        if (-not (Test-Path lib)) { New-Item -ItemType Directory -Path lib }
         
-        if ($platform -eq "x64") {
-          if ($config -eq "Debug") {
-            Copy-Item vsbuild/x64/Debug/lua.lib lib/lua_d_x64.lib
-            Copy-Item vsbuild/x64/Debug/lua-cjson.lib lib/lua-cjson_d_x64.lib
+        # Extract Lua if not already done
+        if (-not (Test-Path lua)) {
+          Write-Host "Extracting Lua..."
+          tar -xzf lua-5.4.7.tar.gz
+          Rename-Item lua-5.4.7 lua
+          Copy-Item vsbuild/wmain.c lua/src/
+          Move-Item lua/src/lua.h* include/
+          Move-Item lua/src/*lib.h include/
+          Move-Item lua/src/luaconf.h include/
+        }
+        
+        # Extract lua-cjson if not already done
+        if (-not (Test-Path lua-cjson)) {
+          Write-Host "Extracting lua-cjson..."
+          Expand-Archive -Path lua-cjson-2.1.0.zip -DestinationPath .
+          Rename-Item lua-cjson-2.1.0 lua-cjson
+          Copy-Item -Force vsbuild/patch/lua-cjson/dtoa.c lua-cjson/dtoa.c
+        }
+        
+        # Build Lua
+        cd vsbuild
+        msbuild lua.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+        
+        # Copy libraries
+        if ("${{ matrix.configuration }}" -eq "Debug") {
+          if ("${{ matrix.platform }}" -eq "x64") {
+            Copy-Item x64/Debug/lua.lib ../lib/lua_d_x64.lib -Force
+            Copy-Item x64/Debug/lua-cjson.lib ../lib/lua-cjson_d_x64.lib -Force
           } else {
-            Copy-Item vsbuild/x64/Release/lua.lib lib/lua_x64.lib
-            Copy-Item vsbuild/x64/Release/lua-cjson.lib lib/lua-cjson_x64.lib
+            Copy-Item Debug/lua.lib ../lib/lua_d.lib -Force
+            Copy-Item Debug/lua-cjson.lib ../lib/lua-cjson_d.lib -Force
           }
         } else {
-          if ($config -eq "Debug") {
-            Copy-Item vsbuild/Debug/lua.lib lib/lua_d.lib
-            Copy-Item vsbuild/Debug/lua-cjson.lib lib/lua-cjson_d.lib
+          if ("${{ matrix.platform }}" -eq "x64") {
+            Copy-Item x64/Release/lua.lib ../lib/lua_x64.lib -Force
+            Copy-Item x64/Release/lua-cjson.lib ../lib/lua-cjson_x64.lib -Force
           } else {
-            Copy-Item vsbuild/Release/lua.lib lib/lua.lib
-            Copy-Item vsbuild/Release/lua-cjson.lib lib/lua-cjson.lib
+            Copy-Item Release/lua.lib ../lib/lua.lib -Force
+            Copy-Item Release/lua-cjson.lib ../lib/lua-cjson.lib -Force
           }
         }
     
